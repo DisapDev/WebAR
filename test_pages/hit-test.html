@@ -3,7 +3,7 @@
 <head>
   <title>AR Hit-Test Inspector</title>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
   
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -11,75 +11,206 @@
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@6..144,1..1000&display=swap" rel="stylesheet">
 
   <style>
-    body { margin: 0; overflow: hidden; font-family: "Google Sans Flex", sans-serif; background: black; }
-    
-    /* --- AR START SCREEN --- */
-    #start-screen {
-      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-      background: rgba(0,0,0,0.8); z-index: 9999;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      color: white; text-align: center;
+    /* --- CORE VARIABLES & RESET --- */
+    :root {
+      --primary: #00D2FF;
+      --bg-dark: rgba(20, 20, 20, 0.9);
+      --bg-darker: #111;
+      --border: #444;
+      --text: #eee;
+      --text-dim: #aaa;
+      --radius: 12px;
+      --spacing: 16px;
     }
-    #start-btn {
-      padding: 15px 30px; font-size: 18px; font-weight: bold; 
-      background: #00D2FF; border: none; border-radius: 30px; cursor: pointer; margin-top: 20px;
+    
+    body { 
+      margin: 0; overflow: hidden; 
+      font-family: "Google Sans Flex", sans-serif; 
+      background: black; 
+      color: var(--text);
+      -webkit-tap-highlight-color: transparent;
     }
 
-    /* --- SIDEBAR OVERLAY (Floating) --- */
-    #sidebar {
-      position: absolute; top: 0; left: 0; width: 200px; height: 100%;
-      background: rgba(20, 20, 20, 0.85);
-      border-right: 1px solid #444;
-      overflow-y: auto; color: #ddd; z-index: 100;
+    /* --- DOM OVERLAY CONTAINER --- */
+    #dom-overlay { 
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+      pointer-events: none; /* Let touches pass to canvas by default */
       display: flex; flex-direction: column;
-      transition: transform 0.3s ease;
-      transform: translateX(-100%); /* Hidden by default */
-      backdrop-filter: blur(5px);
+    }
+    /* Re-enable pointer events for UI elements */
+    #dom-overlay > * { pointer-events: auto; }
+    
+    /* --- HEADER / TOP BAR --- */
+    #top-bar {
+      position: absolute; top: 0; left: 0; width: 100%;
+      height: 60px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 var(--spacing);
+      box-sizing: border-box;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+      z-index: 100;
+      pointer-events: none; /* Let clicks pass through empty space */
+    }
+    #top-bar > * { pointer-events: auto; }
+
+    #back-btn {
+      background: rgba(255,255,255,0.2); backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: white; text-decoration: none;
+      padding: 8px 16px; border-radius: 20px; font-size: 14px; font-weight: 500;
+      display: flex; align-items: center; gap: 6px;
+    }
+    #sidebar-toggle {
+      background: rgba(255,255,255,0.2); backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: white; width: 40px; height: 40px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; cursor: pointer;
+    }
+
+    /* --- HIERARCHY SIDEBAR --- */
+    #sidebar {
+      position: absolute; top: 0; left: 0; height: 100%;
+      width: 280px;
+      background: var(--bg-dark);
+      border-right: 1px solid var(--border);
+      backdrop-filter: blur(10px);
+      transform: translateX(-100%);
+      transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+      z-index: 200;
+      display: flex; flex-direction: column;
     }
     #sidebar.open { transform: translateX(0); }
     
-    #sidebar-toggle {
-      position: absolute; top: 20px; left: 20px; z-index: 101;
-      background: rgba(0,0,0,0.6); color: white; border: 1px solid #444;
-      padding: 8px 12px; border-radius: 5px; cursor: pointer;
+    /* Sidebar Header */
+    .sidebar-header {
+      padding: 20px; border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
     }
+    .sidebar-title { font-weight: 600; font-size: 16px; }
+    #sidebar-close { background: none; border: none; color: var(--text-dim); font-size: 24px; cursor: pointer; }
 
-    /* ... REUSED UI STYLES ... */
-    .header { padding: 15px 15px 0 15px; font-weight: bold; border-bottom: 1px solid #444; flex-shrink: 0; }
-    #phase-controls { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-    #tree-container { flex: 1; overflow-y: auto; }
-    .tree-item { padding: 8px 15px; cursor: pointer; font-size: 14px; border-bottom: 1px solid #333; display: flex; align-items: center; gap: 8px; user-select: none; }
-    .tree-item:hover { background: rgba(255,255,255,0.1); }
-    .tree-item.selected { background: #00D2FF; color: black; }
-    .tree-item.hidden { opacity: 0.5; }
+    /* Phasing Control (Inside Sidebar) */
+    .phase-control { padding: 15px 20px; border-bottom: 1px solid var(--border); }
+    .phase-header { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-dim); margin-bottom: 8px; }
+    #phase-slider { width: 100%; cursor: pointer; accent-color: var(--primary); }
+
+    /* Tree Container */
+    #tree-container { flex: 1; overflow-y: auto; padding-bottom: 20px; }
     
-    .expand-btn { width: 20px; text-align: center; flex-shrink: 0; cursor: pointer; font-size: 12px; }
-    .expand-btn.collapsed::before { content: '▶'; }
-    .expand-btn.expanded::before { content: '▼'; }
-    .expand-btn.no-children::before { content: ''; }
-    .visibility-btn { width: 20px; text-align: center; flex-shrink: 0; cursor: pointer; font-size: 14px; margin-left: auto; }
-    .visibility-btn.visible::before { content: '👁'; }
-    .visibility-btn.hidden::before { content: '🚫'; }
+    /* Tree Items */
+    .tree-item { 
+      padding: 10px 20px; cursor: pointer; font-size: 14px; 
+      display: flex; align-items: center; gap: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      transition: background 0.2s;
+    }
+    .tree-item:hover { background: rgba(255,255,255,0.05); }
+    .tree-item.selected { background: rgba(0, 210, 255, 0.15); border-left: 3px solid var(--primary); }
+    .tree-icon { color: var(--text-dim); font-size: 16px; }
+    
+    /* --- BOTTOM CONTROLS (Floating) --- */
+    #bottom-controls {
+      position: absolute; bottom: 30px; left: 0; width: 100%;
+      display: flex; flex-direction: column; align-items: center; gap: 15px;
+      pointer-events: none; z-index: 90;
+    }
+    #bottom-controls > * { pointer-events: auto; }
 
-    /* --- DATA PANEL --- */
+    /* Mode Switcher (Place vs Select) */
+    .mode-switch {
+      background: rgba(20, 20, 20, 0.9); backdrop-filter: blur(10px);
+      padding: 6px; border-radius: 30px;
+      display: flex; gap: 5px; border: 1px solid var(--border);
+    }
+    .mode-btn {
+      padding: 10px 20px; border-radius: 24px; border: none;
+      background: transparent; color: var(--text-dim);
+      font-weight: 500; font-size: 14px; cursor: pointer;
+      transition: all 0.2s;
+    }
+    .mode-btn.active { background: var(--primary); color: #000; box-shadow: 0 2px 10px rgba(0, 210, 255, 0.3); }
+
+    /* Scale Slider Container */
+    .scale-container {
+      background: rgba(20, 20, 20, 0.8); backdrop-filter: blur(10px);
+      padding: 10px 20px; border-radius: 20px;
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 10px;
+    }
+    .scale-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; font-weight: bold; }
+    #scale-slider { width: 150px; accent-color: var(--primary); }
+
+    /* --- DATA PANEL (Bottom Sheet style for Mobile) --- */
     #data-panel {
-      position: absolute; bottom: 20px; right: 20px; left: 20px; z-index: 100;
-      background: rgba(20, 20, 20, 0.9); border: 1px solid #444;
-      border-radius: 8px; padding: 16px; 
-      color: #ddd; font-size: 13px; max-height: 30vh;
-      overflow-y: auto; font-family: "Google Sans Flex", sans-serif;
-      display: none; backdrop-filter: blur(5px);
+      position: absolute; bottom: 0; left: 0; width: 100%;
+      max-height: 40vh; /* Takes up to 40% of screen height */
+      background: var(--bg-dark);
+      border-top-left-radius: 20px; border-top-right-radius: 20px;
+      backdrop-filter: blur(15px); border-top: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      transform: translateY(110%); /* Hidden by default */
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      z-index: 300;
+      box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
     }
-    #data-panel.active { display: block; }
-    #data-panel h3 { margin: 0 0 8px 0; color: #fff; }
-    .section { margin-bottom: 8px; border-bottom: 1px solid #444; padding-bottom: 4px; }
-    .label { color: #888; font-size: 10px; text-transform: uppercase; }
-    .value { color: #fff; }
-    #close-data { position: absolute; top: 10px; right: 10px; cursor: pointer; color: #aaa; }
+    #data-panel.active { transform: translateY(0); }
+
+    /* Drag Handle (Visual cue) */
+    .panel-handle {
+      width: 40px; height: 4px; background: #555; border-radius: 2px;
+      margin: 12px auto; flex-shrink: 0;
+    }
     
-    /* Overlay Container for DOM Overlay Feature */
-    #dom-overlay { position: absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
-    #dom-overlay > * { pointer-events: auto; } /* Re-enable clicks on children */
+    .panel-header {
+      padding: 0 20px 10px 20px; display: flex; justify-content: space-between; align-items: center;
+      border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    .panel-title { font-size: 18px; font-weight: 600; color: white; margin: 0; }
+    .panel-close { background: none; border: none; color: var(--text-dim); font-size: 24px; padding: 10px; cursor: pointer; }
+
+    /* Scrollable Content Area */
+    .panel-content {
+      padding: 20px; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    }
+    
+    .data-row { margin-bottom: 12px; }
+    .data-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; margin-bottom: 4px; letter-spacing: 0.5px; }
+    .data-value { font-size: 14px; color: white; line-height: 1.4; }
+
+    /* --- START SCREEN --- */
+    #start-screen {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: radial-gradient(circle at center, #222, #000);
+      z-index: 1000;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; color: white;
+    }
+    #start-screen h1 { margin-bottom: 10px; font-size: 24px; }
+    #start-screen p { color: #aaa; margin-bottom: 30px; font-size: 14px; max-width: 80%; line-height: 1.5; }
+    
+    /* AR Button Injection Styling Override */
+    #ar-button { 
+      background: var(--primary) !important; color: black !important; font-weight: bold !important;
+      padding: 12px 30px !important; border-radius: 30px !important; border: none !important;
+      font-size: 16px !important; opacity: 1 !important;
+    }
+
+    /* --- DESKTOP / LANDSCAPE TWEAKS --- */
+    @media (min-width: 768px) {
+      /* Sidebar pushes content or overlays nicely */
+      #sidebar { width: 320px; border-right: 1px solid var(--border); }
+      
+      /* Data Panel becomes floating card on right */
+      #data-panel {
+        bottom: 20px; left: auto; right: 20px; width: 320px;
+        border-radius: 16px; border: 1px solid var(--border);
+        transform: translateX(120%); /* Slide out to right */
+        max-height: 60vh;
+      }
+      #data-panel.active { transform: translateX(0); }
+      .panel-handle { display: none; }
+    }
   </style>
 
   <!-- Import Map -->
@@ -96,35 +227,70 @@
 
   <!-- START SCREEN -->
   <div id="start-screen">
-    <h1>AR Hit-Test Mode</h1>
-    <p>Tap "Start AR", then tap the floor to place model.</p>
-    <a href="model-view.html" style="color:#aaa; margin-top:20px; display:block; margin-bottom:20px;">Back to Inspector</a>
-    <!-- The ARButton will inject itself here or body -->
+    <h1>AR Inspection</h1>
+    <p>View the phasing timeline and inspect BIM data directly on site.</p>
+    <!-- ARButton will be injected here via JS -->
+    <a href="model-view.html" style="color: #666; font-size: 12px; margin-top: 30px; text-decoration: none;">Exit to Inspector</a>
   </div>
 
-  <!-- DOM OVERLAY CONTAINER -->
+  <!-- UI OVERLAY -->
   <div id="dom-overlay">
     
-    <!-- UI TOGGLE -->
-    <button id="sidebar-toggle">☰ Hierarchy</button>
-
-    <!-- SIDEBAR -->
-    <div id="sidebar">
-      <div class="header">
-        <div class="header-title">Project Hierarchy</div>
-        <div id="phase-controls">
-          <label for="phase-slider" style="font-size:12px; color:#ccc;">Phase:</label>
-          <input id="phase-slider" type="range" min="0" max="0" value="0" style="width:100px;">
-          <span id="phase-label" style="font-size:12px; color:#ccc; min-width:30px; text-align:right;"></span>
-        </div>
-      </div>
-      <div id="tree-container">Loading...</div>
+    <!-- TOP BAR -->
+    <div id="top-bar">
+      <button id="sidebar-toggle">☰</button>
+      <a id="back-btn" href="model-view.html">
+        <span style="font-size:18px">←</span> Back
+      </a>
     </div>
 
-    <!-- DATA PANEL -->
+    <!-- HIERARCHY SIDEBAR -->
+    <div id="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-title">Project Hierarchy</span>
+        <button id="sidebar-close">✕</button>
+      </div>
+      
+      <div class="phase-control">
+        <div class="phase-header">
+          <span>CONSTRUCTION PHASE</span>
+          <span id="phase-label">0/0</span>
+        </div>
+        <input id="phase-slider" type="range" min="0" max="0" value="0">
+      </div>
+
+      <div id="tree-container">
+        <div style="padding:20px; color:#666; font-size:13px; text-align:center;">Loading Project...</div>
+      </div>
+    </div>
+
+    <!-- DATA PANEL (Bottom Sheet) -->
     <div id="data-panel">
-      <div id="close-data">✕</div>
-      <div id="data-content">Select an object...</div>
+      <div class="panel-handle"></div>
+      <div class="panel-header">
+        <h3 class="panel-title" id="data-title">Selection</h3>
+        <button class="panel-close" id="close-data">✕</button>
+      </div>
+      <div class="panel-content" id="data-content">
+        <!-- Content injected here -->
+      </div>
+    </div>
+
+    <!-- BOTTOM CONTROLS -->
+    <div id="bottom-controls">
+      
+      <!-- Scale Slider -->
+      <div class="scale-container">
+        <span class="scale-label">Scale</span>
+        <input id="scale-slider" type="range" min="0.01" max="0.2" step="0.01" value="0.05">
+      </div>
+
+      <!-- Mode Switcher -->
+      <div class="mode-switch">
+        <button class="mode-btn active" id="btn-place">✢ Place</button>
+        <button class="mode-btn" id="btn-select">👆 Select</button>
+      </div>
+
     </div>
   </div>
 
@@ -134,35 +300,20 @@
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
     import { getModelID, getPaths, loadProjectManifest } from '../js/project-loader.js';
 
-    // 1. Get Project Data
+    // --- 1. CONFIG & INIT ---
     const modelID = getModelID();
     if (!modelID) { alert("No Model ID!"); window.location.href = "../index.html"; }
+    
+    // Update Back Link
+    document.getElementById('back-btn').href = `model-view.html?id=${modelID}`;
+
     const paths = getPaths(modelID);
 
-    // --- UI SETUP ---
-    const sidebar = document.getElementById('sidebar');
-    document.getElementById('sidebar-toggle').addEventListener('click', () => {
-        sidebar.classList.toggle('open');
-    });
-    
-    const dataPanel = document.getElementById('data-panel');
-    const dataContent = document.getElementById('data-content');
-    document.getElementById('close-data').addEventListener('click', () => {
-        dataPanel.classList.remove('active');
-        clearOutline();
-    });
-
-    // --- THREE JS SETUP ---
+    // Three.js Core
     const container = document.createElement('div');
     document.body.appendChild(container);
-
     const scene = new THREE.Scene();
-
     const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
-
-    const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 3);
-    light.position.set(0.5, 1, 0.25);
-    scene.add(light);
     
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setPixelRatio(window.devicePixelRatio);
@@ -170,58 +321,65 @@
     renderer.xr.enabled = true;
     container.appendChild(renderer.domElement);
 
-    // --- AR BUTTON with DOM OVERLAY ---
+    // Lights
+    const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 3);
+    light.position.set(0.5, 1, 0.25);
+    scene.add(light);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+    dirLight.position.set(0, 10, 0); // Overhead light
+    scene.add(dirLight);
+
+    // --- 2. AR SETUP ---
     const overlayDiv = document.getElementById('dom-overlay');
     const startScreen = document.getElementById('start-screen');
-    
+
+    // Create custom AR Button inside our start screen
     const arBtn = ARButton.createButton(renderer, { 
         requiredFeatures: ['hit-test'], 
         optionalFeatures: ['dom-overlay'],
         domOverlay: { root: overlayDiv }
     });
-    
-    // Inject button into start screen for better UX
-    arBtn.style.position = 'static'; 
-    startScreen.appendChild(arBtn);
-    
-    // Hide start screen when session starts
+    arBtn.id = "ar-button"; // For CSS styling
+    startScreen.insertBefore(arBtn, startScreen.lastElementChild);
+
+    // Handle Session Events
     renderer.xr.addEventListener('sessionstart', () => {
         startScreen.style.display = 'none';
     });
     renderer.xr.addEventListener('sessionend', () => {
-        startScreen.style.display = 'flex';
-        location.reload(); // Reload to clear state
+        location.reload();
     });
 
-    // --- RETICLE ---
+    // --- 3. SCENE OBJECTS ---
+    const modelGroup = new THREE.Group();
+    scene.add(modelGroup);
+
+    // Reticle (The Ring)
     const reticle = new THREE.Mesh(
         new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2),
-        new THREE.MeshBasicMaterial()
+        new THREE.MeshBasicMaterial({ color: 0xFFFFFF, opacity: 0.8, transparent: true })
     );
     reticle.matrixAutoUpdate = false;
     reticle.visible = false;
     scene.add(reticle);
 
-    // --- LOGIC VARIABLES ---
-    const loader = new GLTFLoader();
-    const modelGroup = new THREE.Group(); // Everything goes in here
-    scene.add(modelGroup);
+    // State Variables
+    let currentMode = 'place'; // 'place' or 'select'
+    let modelScale = 0.05;
     
+    const loader = new GLTFLoader();
     let phaseEntries = [];
     let phaseManifestData = null;
     let dataMapData = null;
-    
-    const visibilityState = new WeakMap();
-    const domMap = new Map(); 
-    const outlineObjects = new Set();
-    
     let hitTestSource = null;
     let hitTestSourceRequested = false;
 
+    // Raycasting
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
+    let outlineObject = null; // Store current outline
 
-    // 2. LOAD PROJECT
+    // --- 4. LOAD CONTENT ---
     function loadGLB(url) {
       return new Promise((resolve, reject) => {
         loader.load(url, gltf => resolve(gltf), undefined, err => reject(err));
@@ -230,7 +388,7 @@
 
     loadProjectManifest(modelID).then(async (manifest) => {
       if (!manifest) return;
-      document.getElementById('tree-container').innerHTML = '';
+      document.getElementById('tree-container').innerHTML = ''; // Clear loading
       phaseManifestData = manifest;
 
       // Load Data Map
@@ -239,9 +397,10 @@
         if (res.ok) dataMapData = await res.json();
       } catch(e) { console.warn("No data map found"); }
 
+      // Sort phases
       const sortedPhases = Object.keys(manifest).sort((a, b) => {
-        const numA = parseInt(a.match(/\d+/)[0]);
-        const numB = parseInt(b.match(/\d+/)[0]);
+        const numA = parseInt(a.match(/\d+/)[0] || 0);
+        const numB = parseInt(b.match(/\d+/)[0] || 0);
         return numA - numB;
       });
 
@@ -254,192 +413,242 @@
           const gltf = await loadGLB(url);
           const model = gltf.scene;
           
-          model.scale.set(0.1, 0.1, 0.1); // Default small scale for AR
+          model.scale.set(modelScale, modelScale, modelScale);
           modelGroup.add(model);
           
           phaseEntries.push({ name: phaseName, model });
           
-          // Build Hierarchy
-          const phaseDiv = addToSidebar(phaseName, model, 0, null);
-          const build = (obj, indent, parentUuid) => {
-            obj.children.forEach(child => {
-              addToSidebar(child.name || 'Unnamed', child, indent, parentUuid);
-              build(child, indent + 1, child.uuid);
-            });
-          };
-          build(model, 1, model.uuid);
+          // Add to Hierarchy UI
+          addHierarchyItem(phaseName, model);
 
         } catch (e) { console.error("Load failed", url, e); }
       }
+      
       setupSlider();
     });
 
-    // 3. INTERACTION LOGIC (Tap to Place vs Select)
-    const controller = renderer.xr.getController(0);
-    controller.addEventListener('select', onSelect);
-    scene.add(controller);
+    // --- 5. UI LOGIC ---
+    
+    // Sidebar Toggles
+    const sidebar = document.getElementById('sidebar');
+    const toggleSidebar = () => sidebar.classList.toggle('open');
+    document.getElementById('sidebar-toggle').addEventListener('click', toggleSidebar);
+    document.getElementById('sidebar-close').addEventListener('click', () => sidebar.classList.remove('open'));
 
-    function onSelect() {
-        // If reticle is visible, move the model there
-        if (reticle.visible) {
-            modelGroup.position.setFromMatrixPosition(reticle.matrix);
-            modelGroup.quaternion.setFromRotationMatrix(reticle.matrix);
-            // Optionally hide reticle after placement? No, keep it for adjustments.
+    // Data Panel
+    const dataPanel = document.getElementById('data-panel');
+    const closeData = () => {
+        dataPanel.classList.remove('active');
+        clearOutline();
+    };
+    document.getElementById('close-data').addEventListener('click', closeData);
+
+    // Mode Switcher
+    const btnPlace = document.getElementById('btn-place');
+    const btnSelect = document.getElementById('btn-select');
+    
+    function setMode(mode) {
+        currentMode = mode;
+        if(mode === 'place') {
+            btnPlace.classList.add('active');
+            btnSelect.classList.remove('active');
+            reticle.visible = false; // Will be managed by render loop
+        } else {
+            btnSelect.classList.add('active');
+            btnPlace.classList.remove('active');
+            reticle.visible = false; // Hide reticle in select mode
         }
     }
     
-    // --- TOUCH SELECTION (Raycasting) ---
-    // We listen to 'click' (simulated by WebXR controller select usually) 
-    // BUT DOM Overlay allows real touch events on the canvas.
-    container.addEventListener('click', (event) => {
-        // If clicking UI, ignore (handled by CSS pointer-events usually)
-        if (event.target.closest('#sidebar') || event.target.closest('#data-panel') || event.target.closest('#sidebar-toggle')) return;
+    btnPlace.addEventListener('click', () => setMode('place'));
+    btnSelect.addEventListener('click', () => setMode('select'));
 
-        // Calculate normalized device coordinates
-        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-        mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
-
-        raycaster.setFromCamera(mouse, camera);
-        
-        // Intersect against model group
-        const intersects = raycaster.intersectObjects(modelGroup.children, true);
-        
-        if (intersects.length > 0) {
-            const hit = intersects.find(x => x.object.isMesh);
-            if(hit) {
-                // If we hit a mesh, select it
-                selectObject(hit.object);
-            }
-        } else {
-            // If we hit nothing (and reticle wasn't the target), clear selection
-             dataPanel.classList.remove('active');
-             clearOutline();
-        }
+    // Scale Slider
+    const scaleSlider = document.getElementById('scale-slider');
+    scaleSlider.addEventListener('input', (e) => {
+        modelScale = parseFloat(e.target.value);
+        modelGroup.children.forEach(child => {
+            child.scale.set(modelScale, modelScale, modelScale);
+        });
     });
 
-
-    // 4. HELPER FUNCTIONS (Slider, Sidebar, Select)
+    // Phasing Slider
     function setupSlider() {
       const slider = document.getElementById('phase-slider');
       const label = document.getElementById('phase-label');
       slider.max = Math.max(0, phaseEntries.length - 1);
       slider.value = phaseEntries.length - 1;
-      label.textContent = phaseEntries.length;
+      label.textContent = `${phaseEntries.length}/${phaseEntries.length}`;
 
-      const apply = (idx) => {
-        phaseEntries.forEach((entry, i) => {
-            const visible = i <= idx;
-            entry.model.visible = visible;
-            const updateDom = (obj) => {
-                const refs = domMap.get(obj.uuid);
-                if(refs) {
-                    refs.visBtn.classList.toggle('visible', visible);
-                    refs.visBtn.classList.toggle('hidden', !visible);
-                    if(visible) refs.div.classList.remove('hidden'); else refs.div.classList.add('hidden');
-                }
-                obj.children.forEach(c => updateDom(c));
-            }
-            updateDom(entry.model);
-        });
-        label.textContent = `${idx + 1}/${phaseEntries.length}`;
-      };
-      
-      apply(parseInt(slider.value));
-      slider.addEventListener('input', (e) => apply(parseInt(e.target.value)));
+      slider.addEventListener('input', (e) => {
+          const idx = parseInt(e.target.value);
+          phaseEntries.forEach((entry, i) => {
+              entry.model.visible = i <= idx;
+          });
+          label.textContent = `${idx + 1}/${phaseEntries.length}`;
+      });
+      // Initial Apply
+      phaseEntries.forEach((entry, i) => entry.model.visible = true);
     }
 
-    function addToSidebar(name, object, indent, parentUuid) {
+    // Hierarchy Builder
+    function addHierarchyItem(name, object) {
+        const container = document.getElementById('tree-container');
+        
+        // Parent Item (Phase)
         const div = document.createElement('div');
         div.className = 'tree-item';
-        div.style.paddingLeft = (15 + indent * 10) + 'px';
-        div.dataset.uuid = object.uuid;
-        
-        visibilityState.set(object, true);
-        domMap.set(object.uuid, { div, visBtn: document.createElement('span') });
+        div.innerHTML = `<span class="tree-icon">📁</span> ${name}`;
+        div.addEventListener('click', () => selectObject(object, name)); // Select entire phase group
+        container.appendChild(div);
 
-        div.innerHTML = `<span>${object.isMesh ? '🔷' : '📁'} ${name}</span>`;
-        div.addEventListener('click', (e) => {
-            e.stopPropagation();
-            selectObject(object);
+        // Children (Meshes) - Flattened slightly for mobile readable
+        object.traverse((child) => {
+            if (child.isMesh) {
+                const childDiv = document.createElement('div');
+                childDiv.className = 'tree-item';
+                childDiv.style.paddingLeft = '40px'; // Indent
+                // Truncate long names
+                const shortName = child.name.length > 25 ? child.name.substring(0, 22) + '...' : child.name;
+                childDiv.innerHTML = `<span class="tree-icon">🔷</span> ${shortName}`;
+                
+                childDiv.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    selectObject(child, child.name);
+                    sidebar.classList.remove('open'); // Close sidebar on selection for better mobile UX
+                });
+                container.appendChild(childDiv);
+            }
         });
-        document.getElementById('tree-container').appendChild(div);
-        return div;
     }
 
-    function selectObject(object) {
+
+    // --- 6. INTERACTION LOGIC ---
+
+    const controller = renderer.xr.getController(0);
+    controller.addEventListener('select', onSelect);
+    scene.add(controller);
+
+    function onSelect() {
+        if (currentMode === 'place' && reticle.visible) {
+            // MOVE MODEL TO RETICLE
+            modelGroup.position.setFromMatrixPosition(reticle.matrix);
+            modelGroup.quaternion.setFromRotationMatrix(reticle.matrix);
+        }
+    }
+
+    // Touch Listener for Selection (DOM Overlay)
+    container.addEventListener('click', (event) => {
+        if (currentMode !== 'select') return;
+        
+        // Ignore clicks on UI
+        if (event.target.closest('#sidebar') || 
+            event.target.closest('#data-panel') || 
+            event.target.closest('#bottom-controls') || 
+            event.target.closest('#top-bar')) return;
+
+        // Normalized Device Coords
+        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
+
+        raycaster.setFromCamera(mouse, camera);
+        
+        // Intersect
+        const intersects = raycaster.intersectObjects(modelGroup.children, true);
+        
+        if (intersects.length > 0) {
+            const hit = intersects.find(x => x.object.isMesh);
+            if(hit) selectObject(hit.object, hit.object.name);
+        } else {
+            closeData();
+        }
+    });
+
+    function selectObject(object, name) {
         clearOutline();
         if(object.isMesh) addOutline(object);
+
+        const title = document.getElementById('data-title');
+        const content = document.getElementById('data-content');
         
+        title.textContent = name || object.name;
         dataPanel.classList.add('active');
-        let html = `<h3>${object.name}</h3>`;
+
+        let html = '';
+        
+        // 1. Mesh Info
+        html += `<div class="data-row">
+            <div class="data-label">Type</div>
+            <div class="data-value">${object.isMesh ? 'Static Mesh' : 'Group/Actor'}</div>
+        </div>`;
+
+        // 2. BIM Data from JSON
         if (dataMapData && dataMapData[object.name]) {
-            html += `<div class="section"><div class="label">BIM Data</div><div class="value">`;
-            for (const [key, val] of Object.entries(dataMapData[object.name])) {
-                html += `${key}: ${val}<br>`;
+             for (const [key, val] of Object.entries(dataMapData[object.name])) {
+                html += `<div class="data-row">
+                    <div class="data-label">${key}</div>
+                    <div class="data-value">${val}</div>
+                </div>`;
             }
-            html += `</div></div>`;
         } else {
-            html += `<div style="color:#888;">No metadata found.</div>`;
+            html += `<div style="padding:10px 0; color:#888; font-style:italic;">No additional BIM data found for this element.</div>`;
         }
-        dataContent.innerHTML = html;
+
+        content.innerHTML = html;
     }
 
     function addOutline(mesh) {
-        outlineObjects.add(mesh);
-        mesh.userData.originalMaterial = mesh.material;
-        const edges = new THREE.EdgesGeometry(mesh.geometry, 15);
-        const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x0099ff, depthTest: false }));
-        line.renderOrder = 999;
-        mesh.add(line);
-        mesh.userData.outlineEdges = line;
+        // Simple bounding box outline for performance
+        const box = new THREE.BoxHelper(mesh, 0x00D2FF);
+        box.material.depthTest = false;
+        box.renderOrder = 999;
+        scene.add(box);
+        outlineObject = box;
     }
 
     function clearOutline() {
-        outlineObjects.forEach(obj => {
-            if(obj.userData.outlineEdges) obj.remove(obj.userData.outlineEdges);
-        });
-        outlineObjects.clear();
-    }
-
-
-    // 5. ANIMATION LOOP (Hit Test)
-    function animate() {
-      renderer.setAnimationLoop(render);
-    }
-
-    function render(timestamp, frame) {
-      if (frame) {
-        const referenceSpace = renderer.xr.getReferenceSpace();
-        const session = renderer.xr.getSession();
-
-        if (hitTestSourceRequested === false) {
-          session.requestReferenceSpace('viewer').then(function (referenceSpace) {
-            session.requestHitTestSource({ space: referenceSpace }).then(function (source) {
-              hitTestSource = source;
-            });
-          });
-          session.addEventListener('end', function () {
-            hitTestSourceRequested = false;
-            hitTestSource = null;
-          });
-          hitTestSourceRequested = true;
+        if (outlineObject) {
+            scene.remove(outlineObject);
+            outlineObject = null;
         }
-
-        if (hitTestSource) {
-          const hitTestResults = frame.getHitTestResults(hitTestSource);
-          if (hitTestResults.length > 0) {
-            const hit = hitTestResults[0];
-            reticle.visible = true;
-            reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
-          } else {
-            reticle.visible = false;
-          }
-        }
-      }
-      renderer.render(scene, camera);
     }
-    
-    animate();
+
+
+    // --- 7. RENDER LOOP ---
+    renderer.setAnimationLoop((timestamp, frame) => {
+        if (frame) {
+            const referenceSpace = renderer.xr.getReferenceSpace();
+            const session = renderer.xr.getSession();
+
+            if (hitTestSourceRequested === false) {
+                session.requestReferenceSpace('viewer').then((refSpace) => {
+                    session.requestHitTestSource({ space: refSpace }).then((source) => {
+                        hitTestSource = source;
+                    });
+                });
+                session.addEventListener('end', () => {
+                    hitTestSourceRequested = false;
+                    hitTestSource = null;
+                });
+                hitTestSourceRequested = true;
+            }
+
+            if (hitTestSource && currentMode === 'place') {
+                const hitTestResults = frame.getHitTestResults(hitTestSource);
+                if (hitTestResults.length > 0) {
+                    const hit = hitTestResults[0];
+                    reticle.visible = true;
+                    reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
+                } else {
+                    reticle.visible = false;
+                }
+            } else {
+                reticle.visible = false;
+            }
+        }
+        renderer.render(scene, camera);
+    });
+
   </script>
 </body>
 </html>
