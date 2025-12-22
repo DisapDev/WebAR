@@ -90,10 +90,16 @@
     .sidebar-title { font-weight: 600; font-size: 16px; }
     #sidebar-close { background: none; border: none; color: var(--text-dim); font-size: 24px; cursor: pointer; }
 
-    /* Phasing Control (Inside Sidebar) */
-    .phase-control { padding: 15px 20px; border-bottom: 1px solid var(--border); }
-    .phase-header { display: flex; justify-content: space-between; font-size: 12px; color: var(--text-dim); margin-bottom: 8px; }
-    #phase-slider { width: 100%; cursor: pointer; accent-color: var(--primary); }
+    /* Phasing Control (moved to bottom) */
+    .phase-pill {
+      background: rgba(20, 20, 20, 0.9); backdrop-filter: blur(10px);
+      padding: 6px 12px; border-radius: 20px;
+      display: flex; align-items: center; gap: 10px;
+      border: 1px solid var(--border);
+    }
+    .phase-title { font-size: 12px; color: var(--text-dim); text-transform: uppercase; font-weight: 600; }
+    .phase-count { font-size: 12px; color: var(--text-dim); min-width:36px; text-align:right; }
+    #phase-slider { width: 120px; cursor: pointer; accent-color: var(--primary); }
 
     /* Tree Container */
     #tree-container { flex: 1; overflow-y: auto; padding-bottom: 20px; }
@@ -140,6 +146,23 @@
     }
     .scale-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; font-weight: bold; }
     #scale-slider { width: 150px; accent-color: var(--primary); }
+
+    /* Select mode cursor (temporary on-screen pointer) */
+    .select-cursor {
+      position: fixed;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: rgba(255,255,255,0.12);
+      border: 2px solid rgba(255,255,255,0.06);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+      transform: translate(-50%, -50%) scale(1);
+      transition: transform 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
+      display: none; z-index: 500; pointer-events: none;
+    }
+    .select-cursor.hit {
+      background: var(--primary);
+      transform: translate(-50%, -50%) scale(1.25);
+      box-shadow: 0 6px 20px rgba(0, 210, 255, 0.25);
+    }
 
     /* --- DATA PANEL (Bottom Sheet style for Mobile) --- */
     #data-panel {
@@ -251,13 +274,7 @@
         <button id="sidebar-close">✕</button>
       </div>
       
-      <div class="phase-control">
-        <div class="phase-header">
-          <span>CONSTRUCTION PHASE</span>
-          <span id="phase-label">0/0</span>
-        </div>
-        <input id="phase-slider" type="range" min="0" max="0" value="0">
-      </div>
+
 
       <div id="tree-container">
         <div style="padding:20px; color:#666; font-size:13px; text-align:center;">Loading Project...</div>
@@ -279,6 +296,13 @@
     <!-- BOTTOM CONTROLS -->
     <div id="bottom-controls">
       
+      <!-- Phase Pill (moved from sidebar) -->
+      <div class="phase-pill" aria-label="construction-phase">
+        <span class="phase-title">CONSTRUCTION PHASE</span>
+        <input id="phase-slider" type="range" min="0" max="0" value="0">
+        <span id="phase-label" class="phase-count">0/0</span>
+      </div>
+
       <!-- Scale Slider -->
       <div class="scale-container">
         <span class="scale-label">Scale</span>
@@ -292,6 +316,8 @@
       </div>
 
     </div>
+
+    <div id="select-cursor" class="select-cursor" aria-hidden="true"></div>
   </div>
 
   <script type="module">
@@ -449,14 +475,22 @@
     
     function setMode(mode) {
         currentMode = mode;
+        const cursorEl = document.getElementById('select-cursor');
         if(mode === 'place') {
             btnPlace.classList.add('active');
             btnSelect.classList.remove('active');
             reticle.visible = false; // Will be managed by render loop
+            if (cursorEl) cursorEl.style.display = 'none';
+            clearHover();
         } else {
             btnSelect.classList.add('active');
             btnPlace.classList.remove('active');
             reticle.visible = false; // Hide reticle in select mode
+            if (cursorEl) {
+                cursorEl.style.display = 'block';
+                cursorEl.style.left = (window.innerWidth / 2 - 8) + 'px';
+                cursorEl.style.top = (window.innerHeight / 2 - 8) + 'px';
+            }
         }
     }
     
@@ -534,6 +568,24 @@
             // MOVE MODEL TO RETICLE
             modelGroup.position.setFromMatrixPosition(reticle.matrix);
             modelGroup.quaternion.setFromRotationMatrix(reticle.matrix);
+            return;
+        }
+        if (currentMode === 'select') {
+            // Raycast forward from controller
+            const tempMatrix = new THREE.Matrix4();
+            tempMatrix.identity().extractRotation(controller.matrixWorld);
+            raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+            raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+            const intersects = raycaster.intersectObjects(modelGroup.children, true);
+            if (intersects.length > 0) {
+                const hit = intersects.find(x => x.object.isMesh);
+                if (hit) {
+                    selectObject(hit.object, hit.object.name);
+                    sidebar.classList.remove('open');
+                }
+            } else {
+                closeData();
+            }
         }
     }
 
@@ -558,13 +610,86 @@
         
         if (intersects.length > 0) {
             const hit = intersects.find(x => x.object.isMesh);
-            if(hit) selectObject(hit.object, hit.object.name);
+            if(hit) {
+                selectObject(hit.object, hit.object.name);
+                sidebar.classList.remove('open');
+            }
         } else {
             closeData();
         }
     });
 
+    // Hover / cursor feedback for select mode
+    let hoveredObject = null;
+    let hoverOutline = null;
+
+    function clearHover() {
+        if (hoverOutline) {
+            if (hoverOutline.parent) hoverOutline.parent.remove(hoverOutline);
+            hoverOutline = null;
+        }
+        hoveredObject = null;
+        const cursorEl = document.getElementById('select-cursor');
+        if (cursorEl) cursorEl.classList.remove('hit');
+    }
+
+    container.addEventListener('pointermove', (event) => {
+        if (currentMode !== 'select') return;
+        const cursorEl = document.getElementById('select-cursor');
+        if (!cursorEl) return;
+
+        // Hide cursor over UI
+        if (event.target.closest('#sidebar') || event.target.closest('#data-panel') || event.target.closest('#bottom-controls') || event.target.closest('#top-bar')) {
+            cursorEl.style.display = 'none';
+            clearHover();
+            return;
+        }
+        cursorEl.style.display = 'block';
+        cursorEl.style.left = (event.clientX - 8) + 'px';
+        cursorEl.style.top = (event.clientY - 8) + 'px';
+
+        // Raycast to detect hover
+        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObjects(modelGroup.children, true);
+
+        if (intersects.length > 0) {
+            const hit = intersects.find(x => x.object.isMesh);
+            if (hit) {
+                if (hoveredObject !== hit.object) {
+                    clearHover();
+                    hoveredObject = hit.object;
+                    // Create thin edge outline (matches model-view/marker visuals)
+                    if (hoveredObject.geometry) {
+                        const edges = new THREE.EdgesGeometry(hoveredObject.geometry, 15);
+                        const line = new THREE.LineSegments(
+                            edges,
+                            new THREE.LineBasicMaterial({ color: 0x0099ff, depthTest: false })
+                        );
+                        line.renderOrder = 998;
+                        hoveredObject.add(line);
+                        hoverOutline = line;
+                    }
+                }
+                cursorEl.classList.add('hit');
+                return;
+            }
+        }
+        // No hit
+        clearHover();
+    });
+
+    // Ensure hover cleared when leaving select mode or clicking UI
+    document.addEventListener('pointerdown', (e) => {
+        if (currentMode !== 'select') return;
+        if (e.target.closest('#sidebar') || e.target.closest('#data-panel') || e.target.closest('#bottom-controls') || e.target.closest('#top-bar')) {
+            clearHover();
+        }
+    });
+
     function selectObject(object, name) {
+        sidebar.classList.remove('open');
         clearOutline();
         if(object.isMesh) addOutline(object);
 
@@ -598,12 +723,21 @@
     }
 
     function addOutline(mesh) {
-        // Simple bounding box outline for performance
-        const box = new THREE.BoxHelper(mesh, 0x00D2FF);
-        box.material.depthTest = false;
-        box.renderOrder = 999;
-        scene.add(box);
-        outlineObject = box;
+        if (!mesh.isMesh) return;
+        // Use edge geometry for a tight mesh outline (same as model-view/marker)
+        const edges = new THREE.EdgesGeometry(mesh.geometry, 15);
+        const outlineLineMaterial = new THREE.LineBasicMaterial({
+            color: 0x0099ff,
+            fog: false,
+            transparent: true,
+            opacity: 1.0,
+            depthTest: false,
+            depthWrite: false
+        });
+        const outlineEdges = new THREE.LineSegments(edges, outlineLineMaterial);
+        outlineEdges.renderOrder = 999;
+        mesh.add(outlineEdges);
+        outlineObject = outlineEdges;
     }
 
     function clearOutline() {
