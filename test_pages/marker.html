@@ -1,0 +1,397 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <title>AR Marker Inspector</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@6..144,1..1000&display=swap" rel="stylesheet">
+
+  <style>
+    body { margin: 0; overflow: hidden; font-family: "Google Sans Flex", sans-serif; background: black; }
+    
+    /* --- AR START SCREEN --- */
+    #start-screen {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.8); z-index: 9999;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      color: white; text-align: center;
+    }
+    #start-btn {
+      padding: 15px 30px; font-size: 18px; font-weight: bold; 
+      background: #00D2FF; border: none; border-radius: 30px; cursor: pointer; margin-top: 20px;
+    }
+
+    /* --- SIDEBAR OVERLAY (Floating) --- */
+    #sidebar {
+      position: absolute; top: 0; left: 0; width: 200px; height: 100%;
+      background: rgba(20, 20, 20, 0.85); /* Semi-transparent for AR */
+      border-right: 1px solid #444;
+      overflow-y: auto; color: #ddd; z-index: 100;
+      display: flex; flex-direction: column;
+      transition: transform 0.3s ease;
+      transform: translateX(-100%); /* Hidden by default on mobile AR */
+      backdrop-filter: blur(5px);
+    }
+    #sidebar.open { transform: translateX(0); }
+    
+    /* Toggle Button for Sidebar */
+    #sidebar-toggle {
+      position: absolute; top: 20px; left: 20px; z-index: 101;
+      background: rgba(0,0,0,0.6); color: white; border: 1px solid #444;
+      padding: 8px 12px; border-radius: 5px; cursor: pointer;
+    }
+
+    /* ... REUSED UI STYLES FROM MODEL-VIEW ... */
+    .header { padding: 15px 15px 0 15px; font-weight: bold; border-bottom: 1px solid #444; flex-shrink: 0; }
+    #phase-controls { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    #tree-container { flex: 1; overflow-y: auto; }
+    .tree-item { padding: 8px 15px; cursor: pointer; font-size: 14px; border-bottom: 1px solid #333; display: flex; align-items: center; gap: 8px; user-select: none; }
+    .tree-item:hover { background: rgba(255,255,255,0.1); }
+    .tree-item.selected { background: #00D2FF; color: black; }
+    .tree-item.hidden { opacity: 0.5; }
+    
+    /* Visibility/Expand Icons */
+    .expand-btn { width: 20px; text-align: center; flex-shrink: 0; cursor: pointer; font-size: 12px; }
+    .expand-btn.collapsed::before { content: '▶'; }
+    .expand-btn.expanded::before { content: '▼'; }
+    .expand-btn.no-children::before { content: ''; }
+    .visibility-btn { width: 20px; text-align: center; flex-shrink: 0; cursor: pointer; font-size: 14px; margin-left: auto; }
+    .visibility-btn.visible::before { content: '👁'; }
+    .visibility-btn.hidden::before { content: '🚫'; }
+
+    /* --- DATA PANEL (Bottom Floating on Mobile) --- */
+    #data-panel {
+      position: absolute; bottom: 20px; right: 20px; left: 20px; z-index: 100;
+      background: rgba(20, 20, 20, 0.9); border: 1px solid #444;
+      border-radius: 8px; padding: 16px; 
+      color: #ddd; font-size: 13px; max-height: 30vh;
+      overflow-y: auto; font-family: "Google Sans Flex", sans-serif;
+      display: none; /* Hidden until selection */
+      backdrop-filter: blur(5px);
+    }
+    #data-panel.active { display: block; }
+    #data-panel h3 { margin: 0 0 8px 0; color: #fff; }
+    .section { margin-bottom: 8px; border-bottom: 1px solid #444; padding-bottom: 4px; }
+    .label { color: #888; font-size: 10px; text-transform: uppercase; }
+    .value { color: #fff; }
+
+    /* Close button for data panel */
+    #close-data { position: absolute; top: 10px; right: 10px; cursor: pointer; color: #aaa; }
+    
+    /* Loading Indicator */
+    #ar-loading {
+      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+      color: white; font-weight: bold; background: rgba(0,0,0,0.7); padding: 20px; border-radius: 10px;
+      display: none; pointer-events: none; z-index: 999;
+    }
+  </style>
+
+  <!-- Import Map -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
+        "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+      }
+    }
+  </script>
+</head>
+<body>
+
+  <!-- START SCREEN -->
+  <div id="start-screen">
+    <h1>AR Marker Mode</h1>
+    <p>Point camera at the target image</p>
+    <button id="start-btn">Start Camera</button>
+    <a href="model-view.html" style="color:#aaa; margin-top:20px;">Back to Inspector</a>
+  </div>
+
+  <div id="ar-loading">Scanning for Marker...</div>
+
+  <!-- UI TOGGLE -->
+  <button id="sidebar-toggle">☰ Hierarchy</button>
+
+  <!-- SIDEBAR -->
+  <div id="sidebar">
+    <div class="header">
+      <div class="header-title">Project Hierarchy</div>
+      <div id="phase-controls">
+        <label for="phase-slider" style="font-size:12px; color:#ccc;">Phase:</label>
+        <input id="phase-slider" type="range" min="0" max="0" value="0" style="width:100px;">
+        <span id="phase-label" style="font-size:12px; color:#ccc; min-width:30px; text-align:right;"></span>
+      </div>
+    </div>
+    <div id="tree-container">Loading...</div>
+  </div>
+
+  <!-- DATA PANEL -->
+  <div id="data-panel">
+    <div id="close-data">✕</div>
+    <div id="data-content">Select an object...</div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { MindARThree } from 'mindar-image-three';
+    import { getModelID, getPaths, loadProjectManifest } from '../js/project-loader.js';
+
+    // 1. Get Project Data
+    const modelID = getModelID();
+    if (!modelID) { alert("No Model ID!"); window.location.href = "../index.html"; }
+    const paths = getPaths(modelID);
+
+    // --- UI TOGGLES ---
+    const sidebar = document.getElementById('sidebar');
+    document.getElementById('sidebar-toggle').addEventListener('click', () => {
+        sidebar.classList.toggle('open');
+    });
+    
+    const dataPanel = document.getElementById('data-panel');
+    const dataContent = document.getElementById('data-content');
+    document.getElementById('close-data').addEventListener('click', () => {
+        dataPanel.classList.remove('active');
+        clearOutline();
+    });
+
+    // --- AR SETUP ---
+    // Note: You must provide a valid .mind file path here. 
+    // Using a placeholder or assuming a standard name like 'targets.mind' in the project folder.
+    // For now, let's assume specific marker path or generic.
+    const mindARThree = new MindARThree({
+      container: document.body,
+      imageTargetSrc: `../assets/targets.mind`, // <--- MAKE SURE THIS EXISTS
+      maxTrack: 1, // Track 1 image
+    });
+
+    const { renderer, scene, camera } = mindARThree;
+    
+    // Light
+    const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 3);
+    scene.add(light);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 2);
+    dirLight.position.set(5, 10, 7.5);
+    scene.add(dirLight);
+
+    // Anchor
+    const anchor = mindARThree.addAnchor(0); // Anchor to the first image in the .mind file
+
+    // 2. LOGIC VARIABLES
+    const loader = new GLTFLoader();
+    let phaseEntries = [];
+    let phaseManifestData = null;
+    let dataMapData = null;
+    
+    const visibilityState = new WeakMap();
+    const domMap = new Map(); 
+    const outlineObjects = new Set();
+    
+    // Raycasting
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
+    // 3. START BUTTON LOGIC
+    document.getElementById('start-btn').addEventListener('click', async () => {
+        document.getElementById('start-screen').style.display = 'none';
+        document.getElementById('ar-loading').style.display = 'block';
+        
+        await mindARThree.start();
+        
+        document.getElementById('ar-loading').style.display = 'none';
+        renderer.setAnimationLoop(() => {
+          renderer.render(scene, camera);
+        });
+    });
+
+    // 4. LOAD PROJECT (Reused logic from model-view.html)
+    function loadGLB(url) {
+      return new Promise((resolve, reject) => {
+        loader.load(url, gltf => resolve(gltf), undefined, err => reject(err));
+      });
+    }
+
+    loadProjectManifest(modelID).then(async (manifest) => {
+      if (!manifest) return;
+      document.getElementById('tree-container').innerHTML = '';
+      phaseManifestData = manifest;
+
+      // Load Data Map
+      try {
+        const res = await fetch(paths.dataMap);
+        if (res.ok) dataMapData = await res.json();
+      } catch(e) { console.warn("No data map found"); }
+
+      // Sort phases
+      const sortedPhases = Object.keys(manifest).sort((a, b) => {
+        const numA = parseInt(a.match(/\d+/)[0]);
+        const numB = parseInt(b.match(/\d+/)[0]);
+        return numA - numB;
+      });
+
+      // Load Models
+      phaseEntries = [];
+      for (let i = 0; i < sortedPhases.length; i++) {
+        const phaseName = sortedPhases[i];
+        const url = paths.getGLBPath(phaseName);
+        
+        try {
+          const gltf = await loadGLB(url);
+          const model = gltf.scene;
+          
+          // AR SCALING: Models are usually big (meters). Markers are small.
+          // Scale down to fit on a typical printed paper (e.g., 0.1 or 0.05)
+          model.scale.set(0.05, 0.05, 0.05); 
+          
+          anchor.group.add(model); // Add to Anchor, not Scene
+          
+          phaseEntries.push({ name: phaseName, model });
+          
+          // Build Hierarchy Tree (Same logic)
+          const phaseDiv = addToSidebar(phaseName, model, 0, null);
+          
+          const build = (obj, indent, parentUuid) => {
+            obj.children.forEach(child => {
+              addToSidebar(child.name || 'Unnamed', child, indent, parentUuid);
+              build(child, indent + 1, child.uuid);
+            });
+          };
+          build(model, 1, model.uuid);
+
+        } catch (e) { console.error("Load failed", url, e); }
+      }
+
+      // Setup Slider
+      setupSlider();
+    });
+
+    // 5. HELPER FUNCTIONS (Tree, Selection, Phasing)
+
+    function setupSlider() {
+      const slider = document.getElementById('phase-slider');
+      const label = document.getElementById('phase-label');
+      slider.max = Math.max(0, phaseEntries.length - 1);
+      slider.value = phaseEntries.length - 1;
+      label.textContent = phaseEntries.length;
+
+      const apply = (idx) => {
+        phaseEntries.forEach((entry, i) => {
+            const visible = i <= idx;
+            entry.model.visible = visible;
+            // Update UI Icons
+            const updateDom = (obj) => {
+                const refs = domMap.get(obj.uuid);
+                if(refs) {
+                    refs.visBtn.classList.toggle('visible', visible);
+                    refs.visBtn.classList.toggle('hidden', !visible);
+                    if(visible) refs.div.classList.remove('hidden'); else refs.div.classList.add('hidden');
+                }
+                obj.children.forEach(c => updateDom(c));
+            }
+            updateDom(entry.model);
+        });
+        label.textContent = `${idx + 1}/${phaseEntries.length}`;
+      };
+      
+      apply(parseInt(slider.value));
+      slider.addEventListener('input', (e) => apply(parseInt(e.target.value)));
+    }
+
+    function addToSidebar(name, object, indent, parentUuid) {
+        const div = document.createElement('div');
+        div.className = 'tree-item';
+        div.style.paddingLeft = (15 + indent * 10) + 'px';
+        div.dataset.uuid = object.uuid;
+        
+        visibilityState.set(object, true);
+        domMap.set(object.uuid, { div, visBtn: document.createElement('span') }); // Simplified for brevity
+
+        // Simple Label
+        div.innerHTML = `<span>${object.isMesh ? '🔷' : '📁'} ${name}</span>`;
+        
+        // Click to Select
+        div.addEventListener('click', (e) => {
+            e.stopPropagation();
+            selectObject(object);
+        });
+
+        document.getElementById('tree-container').appendChild(div);
+        return div;
+    }
+
+    function selectObject(object) {
+        // Highlight logic
+        clearOutline();
+        if(object.isMesh) addOutline(object);
+        
+        // Show Data Panel
+        dataPanel.classList.add('active');
+        
+        // Populate Data
+        let html = `<h3>${object.name}</h3>`;
+        
+        // Lookup Data in Map
+        if (dataMapData && dataMapData[object.name]) {
+            html += `<div class="section"><div class="label">BIM Data</div><div class="value">`;
+            for (const [key, val] of Object.entries(dataMapData[object.name])) {
+                html += `${key}: ${val}<br>`;
+            }
+            html += `</div></div>`;
+        } else {
+            html += `<div style="color:#888;">No metadata found.</div>`;
+        }
+        
+        dataContent.innerHTML = html;
+    }
+
+    // --- OUTLINE LOGIC (Reused) ---
+    function addOutline(mesh) {
+        outlineObjects.add(mesh);
+        mesh.userData.originalMaterial = mesh.material;
+        const edges = new THREE.EdgesGeometry(mesh.geometry, 15);
+        const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x0099ff, depthTest: false }));
+        line.renderOrder = 999;
+        mesh.add(line);
+        mesh.userData.outlineEdges = line;
+    }
+
+    function clearOutline() {
+        outlineObjects.forEach(obj => {
+            if(obj.userData.outlineEdges) obj.remove(obj.userData.outlineEdges);
+        });
+        outlineObjects.clear();
+    }
+
+    // --- TOUCH RAYCASTING ---
+    // MindAR works full screen. We treat clicks on the screen (that aren't on UI) as selection attempts.
+    document.addEventListener('pointerdown', (event) => {
+        // If clicking UI, ignore
+        if (event.target.closest('#sidebar') || event.target.closest('#data-panel') || event.target.closest('#sidebar-toggle')) return;
+
+        // Coordinates for MindAR/ThreeJS are -1 to 1
+        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
+
+        raycaster.setFromCamera(mouse, camera);
+        
+        // Raycast against the anchor group children
+        const intersects = raycaster.intersectObjects(anchor.group.children, true);
+        
+        if (intersects.length > 0) {
+            // Find the first mesh
+            const hit = intersects.find(x => x.object.isMesh);
+            if(hit) selectObject(hit.object);
+        } else {
+            // Deselect if clicking empty space
+            dataPanel.classList.remove('active');
+            clearOutline();
+        }
+    });
+
+  </script>
+</body>
+</html>

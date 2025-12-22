@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <title>AR Hit-Test Inspector</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@6..144,1..1000&display=swap" rel="stylesheet">
+
+  <style>
+    body { margin: 0; overflow: hidden; font-family: "Google Sans Flex", sans-serif; background: black; }
+    
+    /* --- AR START SCREEN --- */
+    #start-screen {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.8); z-index: 9999;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      color: white; text-align: center;
+    }
+    #start-btn {
+      padding: 15px 30px; font-size: 18px; font-weight: bold; 
+      background: #00D2FF; border: none; border-radius: 30px; cursor: pointer; margin-top: 20px;
+    }
+
+    /* --- SIDEBAR OVERLAY (Floating) --- */
+    #sidebar {
+      position: absolute; top: 0; left: 0; width: 200px; height: 100%;
+      background: rgba(20, 20, 20, 0.85);
+      border-right: 1px solid #444;
+      overflow-y: auto; color: #ddd; z-index: 100;
+      display: flex; flex-direction: column;
+      transition: transform 0.3s ease;
+      transform: translateX(-100%); /* Hidden by default */
+      backdrop-filter: blur(5px);
+    }
+    #sidebar.open { transform: translateX(0); }
+    
+    #sidebar-toggle {
+      position: absolute; top: 20px; left: 20px; z-index: 101;
+      background: rgba(0,0,0,0.6); color: white; border: 1px solid #444;
+      padding: 8px 12px; border-radius: 5px; cursor: pointer;
+    }
+
+    /* ... REUSED UI STYLES ... */
+    .header { padding: 15px 15px 0 15px; font-weight: bold; border-bottom: 1px solid #444; flex-shrink: 0; }
+    #phase-controls { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+    #tree-container { flex: 1; overflow-y: auto; }
+    .tree-item { padding: 8px 15px; cursor: pointer; font-size: 14px; border-bottom: 1px solid #333; display: flex; align-items: center; gap: 8px; user-select: none; }
+    .tree-item:hover { background: rgba(255,255,255,0.1); }
+    .tree-item.selected { background: #00D2FF; color: black; }
+    .tree-item.hidden { opacity: 0.5; }
+    
+    .expand-btn { width: 20px; text-align: center; flex-shrink: 0; cursor: pointer; font-size: 12px; }
+    .expand-btn.collapsed::before { content: '▶'; }
+    .expand-btn.expanded::before { content: '▼'; }
+    .expand-btn.no-children::before { content: ''; }
+    .visibility-btn { width: 20px; text-align: center; flex-shrink: 0; cursor: pointer; font-size: 14px; margin-left: auto; }
+    .visibility-btn.visible::before { content: '👁'; }
+    .visibility-btn.hidden::before { content: '🚫'; }
+
+    /* --- DATA PANEL --- */
+    #data-panel {
+      position: absolute; bottom: 20px; right: 20px; left: 20px; z-index: 100;
+      background: rgba(20, 20, 20, 0.9); border: 1px solid #444;
+      border-radius: 8px; padding: 16px; 
+      color: #ddd; font-size: 13px; max-height: 30vh;
+      overflow-y: auto; font-family: "Google Sans Flex", sans-serif;
+      display: none; backdrop-filter: blur(5px);
+    }
+    #data-panel.active { display: block; }
+    #data-panel h3 { margin: 0 0 8px 0; color: #fff; }
+    .section { margin-bottom: 8px; border-bottom: 1px solid #444; padding-bottom: 4px; }
+    .label { color: #888; font-size: 10px; text-transform: uppercase; }
+    .value { color: #fff; }
+    #close-data { position: absolute; top: 10px; right: 10px; cursor: pointer; color: #aaa; }
+    
+    /* Overlay Container for DOM Overlay Feature */
+    #dom-overlay { position: absolute; top:0; left:0; width:100%; height:100%; pointer-events:none; }
+    #dom-overlay > * { pointer-events: auto; } /* Re-enable clicks on children */
+  </style>
+
+  <!-- Import Map -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+
+  <!-- START SCREEN -->
+  <div id="start-screen">
+    <h1>AR Hit-Test Mode</h1>
+    <p>Tap "Start AR", then tap the floor to place model.</p>
+    <a href="model-view.html" style="color:#aaa; margin-top:20px; display:block; margin-bottom:20px;">Back to Inspector</a>
+    <!-- The ARButton will inject itself here or body -->
+  </div>
+
+  <!-- DOM OVERLAY CONTAINER -->
+  <div id="dom-overlay">
+    
+    <!-- UI TOGGLE -->
+    <button id="sidebar-toggle">☰ Hierarchy</button>
+
+    <!-- SIDEBAR -->
+    <div id="sidebar">
+      <div class="header">
+        <div class="header-title">Project Hierarchy</div>
+        <div id="phase-controls">
+          <label for="phase-slider" style="font-size:12px; color:#ccc;">Phase:</label>
+          <input id="phase-slider" type="range" min="0" max="0" value="0" style="width:100px;">
+          <span id="phase-label" style="font-size:12px; color:#ccc; min-width:30px; text-align:right;"></span>
+        </div>
+      </div>
+      <div id="tree-container">Loading...</div>
+    </div>
+
+    <!-- DATA PANEL -->
+    <div id="data-panel">
+      <div id="close-data">✕</div>
+      <div id="data-content">Select an object...</div>
+    </div>
+  </div>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { ARButton } from 'three/addons/webxr/ARButton.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { getModelID, getPaths, loadProjectManifest } from '../js/project-loader.js';
+
+    // 1. Get Project Data
+    const modelID = getModelID();
+    if (!modelID) { alert("No Model ID!"); window.location.href = "../index.html"; }
+    const paths = getPaths(modelID);
+
+    // --- UI SETUP ---
+    const sidebar = document.getElementById('sidebar');
+    document.getElementById('sidebar-toggle').addEventListener('click', () => {
+        sidebar.classList.toggle('open');
+    });
+    
+    const dataPanel = document.getElementById('data-panel');
+    const dataContent = document.getElementById('data-content');
+    document.getElementById('close-data').addEventListener('click', () => {
+        dataPanel.classList.remove('active');
+        clearOutline();
+    });
+
+    // --- THREE JS SETUP ---
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+
+    const scene = new THREE.Scene();
+
+    const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+
+    const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 3);
+    light.position.set(0.5, 1, 0.25);
+    scene.add(light);
+    
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.xr.enabled = true;
+    container.appendChild(renderer.domElement);
+
+    // --- AR BUTTON with DOM OVERLAY ---
+    const overlayDiv = document.getElementById('dom-overlay');
+    const startScreen = document.getElementById('start-screen');
+    
+    const arBtn = ARButton.createButton(renderer, { 
+        requiredFeatures: ['hit-test'], 
+        optionalFeatures: ['dom-overlay'],
+        domOverlay: { root: overlayDiv }
+    });
+    
+    // Inject button into start screen for better UX
+    arBtn.style.position = 'static'; 
+    startScreen.appendChild(arBtn);
+    
+    // Hide start screen when session starts
+    renderer.xr.addEventListener('sessionstart', () => {
+        startScreen.style.display = 'none';
+    });
+    renderer.xr.addEventListener('sessionend', () => {
+        startScreen.style.display = 'flex';
+        location.reload(); // Reload to clear state
+    });
+
+    // --- RETICLE ---
+    const reticle = new THREE.Mesh(
+        new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial()
+    );
+    reticle.matrixAutoUpdate = false;
+    reticle.visible = false;
+    scene.add(reticle);
+
+    // --- LOGIC VARIABLES ---
+    const loader = new GLTFLoader();
+    const modelGroup = new THREE.Group(); // Everything goes in here
+    scene.add(modelGroup);
+    
+    let phaseEntries = [];
+    let phaseManifestData = null;
+    let dataMapData = null;
+    
+    const visibilityState = new WeakMap();
+    const domMap = new Map(); 
+    const outlineObjects = new Set();
+    
+    let hitTestSource = null;
+    let hitTestSourceRequested = false;
+
+    const raycaster = new THREE.Raycaster();
+    const mouse = new THREE.Vector2();
+
+    // 2. LOAD PROJECT
+    function loadGLB(url) {
+      return new Promise((resolve, reject) => {
+        loader.load(url, gltf => resolve(gltf), undefined, err => reject(err));
+      });
+    }
+
+    loadProjectManifest(modelID).then(async (manifest) => {
+      if (!manifest) return;
+      document.getElementById('tree-container').innerHTML = '';
+      phaseManifestData = manifest;
+
+      // Load Data Map
+      try {
+        const res = await fetch(paths.dataMap);
+        if (res.ok) dataMapData = await res.json();
+      } catch(e) { console.warn("No data map found"); }
+
+      const sortedPhases = Object.keys(manifest).sort((a, b) => {
+        const numA = parseInt(a.match(/\d+/)[0]);
+        const numB = parseInt(b.match(/\d+/)[0]);
+        return numA - numB;
+      });
+
+      phaseEntries = [];
+      for (let i = 0; i < sortedPhases.length; i++) {
+        const phaseName = sortedPhases[i];
+        const url = paths.getGLBPath(phaseName);
+        
+        try {
+          const gltf = await loadGLB(url);
+          const model = gltf.scene;
+          
+          model.scale.set(0.1, 0.1, 0.1); // Default small scale for AR
+          modelGroup.add(model);
+          
+          phaseEntries.push({ name: phaseName, model });
+          
+          // Build Hierarchy
+          const phaseDiv = addToSidebar(phaseName, model, 0, null);
+          const build = (obj, indent, parentUuid) => {
+            obj.children.forEach(child => {
+              addToSidebar(child.name || 'Unnamed', child, indent, parentUuid);
+              build(child, indent + 1, child.uuid);
+            });
+          };
+          build(model, 1, model.uuid);
+
+        } catch (e) { console.error("Load failed", url, e); }
+      }
+      setupSlider();
+    });
+
+    // 3. INTERACTION LOGIC (Tap to Place vs Select)
+    const controller = renderer.xr.getController(0);
+    controller.addEventListener('select', onSelect);
+    scene.add(controller);
+
+    function onSelect() {
+        // If reticle is visible, move the model there
+        if (reticle.visible) {
+            modelGroup.position.setFromMatrixPosition(reticle.matrix);
+            modelGroup.quaternion.setFromRotationMatrix(reticle.matrix);
+            // Optionally hide reticle after placement? No, keep it for adjustments.
+        }
+    }
+    
+    // --- TOUCH SELECTION (Raycasting) ---
+    // We listen to 'click' (simulated by WebXR controller select usually) 
+    // BUT DOM Overlay allows real touch events on the canvas.
+    container.addEventListener('click', (event) => {
+        // If clicking UI, ignore (handled by CSS pointer-events usually)
+        if (event.target.closest('#sidebar') || event.target.closest('#data-panel') || event.target.closest('#sidebar-toggle')) return;
+
+        // Calculate normalized device coordinates
+        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
+
+        raycaster.setFromCamera(mouse, camera);
+        
+        // Intersect against model group
+        const intersects = raycaster.intersectObjects(modelGroup.children, true);
+        
+        if (intersects.length > 0) {
+            const hit = intersects.find(x => x.object.isMesh);
+            if(hit) {
+                // If we hit a mesh, select it
+                selectObject(hit.object);
+            }
+        } else {
+            // If we hit nothing (and reticle wasn't the target), clear selection
+             dataPanel.classList.remove('active');
+             clearOutline();
+        }
+    });
+
+
+    // 4. HELPER FUNCTIONS (Slider, Sidebar, Select)
+    function setupSlider() {
+      const slider = document.getElementById('phase-slider');
+      const label = document.getElementById('phase-label');
+      slider.max = Math.max(0, phaseEntries.length - 1);
+      slider.value = phaseEntries.length - 1;
+      label.textContent = phaseEntries.length;
+
+      const apply = (idx) => {
+        phaseEntries.forEach((entry, i) => {
+            const visible = i <= idx;
+            entry.model.visible = visible;
+            const updateDom = (obj) => {
+                const refs = domMap.get(obj.uuid);
+                if(refs) {
+                    refs.visBtn.classList.toggle('visible', visible);
+                    refs.visBtn.classList.toggle('hidden', !visible);
+                    if(visible) refs.div.classList.remove('hidden'); else refs.div.classList.add('hidden');
+                }
+                obj.children.forEach(c => updateDom(c));
+            }
+            updateDom(entry.model);
+        });
+        label.textContent = `${idx + 1}/${phaseEntries.length}`;
+      };
+      
+      apply(parseInt(slider.value));
+      slider.addEventListener('input', (e) => apply(parseInt(e.target.value)));
+    }
+
+    function addToSidebar(name, object, indent, parentUuid) {
+        const div = document.createElement('div');
+        div.className = 'tree-item';
+        div.style.paddingLeft = (15 + indent * 10) + 'px';
+        div.dataset.uuid = object.uuid;
+        
+        visibilityState.set(object, true);
+        domMap.set(object.uuid, { div, visBtn: document.createElement('span') });
+
+        div.innerHTML = `<span>${object.isMesh ? '🔷' : '📁'} ${name}</span>`;
+        div.addEventListener('click', (e) => {
+            e.stopPropagation();
+            selectObject(object);
+        });
+        document.getElementById('tree-container').appendChild(div);
+        return div;
+    }
+
+    function selectObject(object) {
+        clearOutline();
+        if(object.isMesh) addOutline(object);
+        
+        dataPanel.classList.add('active');
+        let html = `<h3>${object.name}</h3>`;
+        if (dataMapData && dataMapData[object.name]) {
+            html += `<div class="section"><div class="label">BIM Data</div><div class="value">`;
+            for (const [key, val] of Object.entries(dataMapData[object.name])) {
+                html += `${key}: ${val}<br>`;
+            }
+            html += `</div></div>`;
+        } else {
+            html += `<div style="color:#888;">No metadata found.</div>`;
+        }
+        dataContent.innerHTML = html;
+    }
+
+    function addOutline(mesh) {
+        outlineObjects.add(mesh);
+        mesh.userData.originalMaterial = mesh.material;
+        const edges = new THREE.EdgesGeometry(mesh.geometry, 15);
+        const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x0099ff, depthTest: false }));
+        line.renderOrder = 999;
+        mesh.add(line);
+        mesh.userData.outlineEdges = line;
+    }
+
+    function clearOutline() {
+        outlineObjects.forEach(obj => {
+            if(obj.userData.outlineEdges) obj.remove(obj.userData.outlineEdges);
+        });
+        outlineObjects.clear();
+    }
+
+
+    // 5. ANIMATION LOOP (Hit Test)
+    function animate() {
+      renderer.setAnimationLoop(render);
+    }
+
+    function render(timestamp, frame) {
+      if (frame) {
+        const referenceSpace = renderer.xr.getReferenceSpace();
+        const session = renderer.xr.getSession();
+
+        if (hitTestSourceRequested === false) {
+          session.requestReferenceSpace('viewer').then(function (referenceSpace) {
+            session.requestHitTestSource({ space: referenceSpace }).then(function (source) {
+              hitTestSource = source;
+            });
+          });
+          session.addEventListener('end', function () {
+            hitTestSourceRequested = false;
+            hitTestSource = null;
+          });
+          hitTestSourceRequested = true;
+        }
+
+        if (hitTestSource) {
+          const hitTestResults = frame.getHitTestResults(hitTestSource);
+          if (hitTestResults.length > 0) {
+            const hit = hitTestResults[0];
+            reticle.visible = true;
+            reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
+          } else {
+            reticle.visible = false;
+          }
+        }
+      }
+      renderer.render(scene, camera);
+    }
+    
+    animate();
+  </script>
+</body>
+</html>
