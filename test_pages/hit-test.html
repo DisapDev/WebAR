@@ -67,6 +67,37 @@
       display: flex; align-items: center; justify-content: center;
       font-size: 20px; cursor: pointer;
     }
+    /* Settings button matches sidebar toggle */
+    #settings-toggle {
+      background: rgba(255,255,255,0.2); backdrop-filter: blur(10px);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: white; width: 40px; height: 40px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; cursor: pointer; margin-left: 8px;
+    }
+    .settings-panel {
+      position: absolute; top: 60px; left: 20px; z-index: 110;
+      background: rgba(20,20,20,0.95); border: 1px solid #444; border-radius: 8px;
+      padding: 10px; color: #ddd; min-width: 220px; display: none; box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+    }
+    .settings-panel.active { display: block; }
+    .settings-header { font-size: 13px; margin-bottom: 8px; }
+    .settings-row { margin-bottom: 10px; display:flex; flex-direction:column; gap:6px; }
+    .setting-label { color: #aaa; font-size: 12px; text-transform: uppercase; }
+    .settings-panel label { font-size: 13px; color: #ddd; }
+
+    /* Phase notice */
+    .phase-notice {
+      position: fixed; left: 50%; top: 12px; transform: translate(-50%, -10px);
+      background: rgba(10,10,10,0.95); color: white; font-size: 14px; padding: 10px 18px; border-radius: 10px;
+      z-index: 9999; box-shadow: 0 8px 30px rgba(0,0,0,0.6); opacity: 0; pointer-events: none; transition: opacity 0.3s ease, transform 0.3s ease;
+      text-align: center; min-width: 220px; max-width: 75%;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+    .phase-notice .phase-name { font-weight: 600; margin-bottom: 6px; }
+    .phase-notice .phase-value { font-size: 13px; color: #e6eef6; opacity: 0.95; }
+    .phase-notice.show { opacity: 1; transform: translate(-50%, 0); }
+    .phase-notice.hiding { opacity: 0; transform: translate(-50%, -6px); }
 
     /* --- HIERARCHY SIDEBAR --- */
     #sidebar {
@@ -261,11 +292,17 @@
     
     <!-- TOP BAR -->
     <div id="top-bar">
-      <button id="sidebar-toggle">☰</button>
-      <a id="back-btn" href="model-view.html">
-        <span style="font-size:18px">←</span> Back
+      <div style="display:flex; gap:8px; align-items:center;">
+        <button id="sidebar-toggle" class="top-btn">☰</button>
+        <button id="settings-toggle" class="top-btn">⚙</button>
+      </div>
+      <a id="back-btn" class="top-btn" href="model-view.html">
+        <span style="font-size:18px">←</span>
       </a>
     </div>
+
+    <!-- Phase Notice (temporary top-centered floating notification) -->
+    <div id="phase-notice" class="phase-notice" aria-hidden="true"></div>
 
     <!-- HIERARCHY SIDEBAR -->
     <div id="sidebar">
@@ -278,6 +315,22 @@
 
       <div id="tree-container">
         <div style="padding:20px; color:#666; font-size:13px; text-align:center;">Loading Project...</div>
+      </div>
+    </div>
+
+    <!-- Settings Panel -->
+    <div id="settings-panel" class="settings-panel" aria-hidden="true">
+      <div class="settings-header"><strong>Settings</strong></div>
+      <div class="settings-row">
+        <div class="setting-label">Selection Outline</div>
+        <label><input type="radio" name="outline-mode" value="edges"> Wireframe</label>
+        <label><input type="radio" name="outline-mode" value="box"> Box</label>
+        <label><input type="radio" name="outline-mode" value="none"> None</label>
+      </div>
+      <div class="settings-row">
+        <div class="setting-label">Hitbox Size</div>
+        <label><input type="radio" name="hitbox-size" value="normal"> Normal</label>
+        <label><input type="radio" name="hitbox-size" value="large"> Larger</label>
       </div>
     </div>
 
@@ -295,24 +348,24 @@
 
     <!-- BOTTOM CONTROLS -->
     <div id="bottom-controls">
-      
-      <!-- Phase Pill (moved from sidebar) -->
-      <div class="phase-pill" aria-label="construction-phase">
-        <span class="phase-title">CONSTRUCTION PHASE</span>
-        <input id="phase-slider" type="range" min="0" max="0" value="0">
-        <span id="phase-label" class="phase-count">0/0</span>
+
+      <!-- Mode Switcher (Top) -->
+      <div class="mode-switch">
+        <button class="mode-btn active" id="btn-place">✢ Place</button>
+        <button class="mode-btn" id="btn-select">👆 Select</button>
       </div>
 
-      <!-- Scale Slider -->
+      <!-- Scale Slider (Middle) -->
       <div class="scale-container">
         <span class="scale-label">Scale</span>
         <input id="scale-slider" type="range" min="0.01" max="0.2" step="0.01" value="0.05">
       </div>
 
-      <!-- Mode Switcher -->
-      <div class="mode-switch">
-        <button class="mode-btn active" id="btn-place">✢ Place</button>
-        <button class="mode-btn" id="btn-select">👆 Select</button>
+      <!-- Phase Pill (Bottom) -->
+      <div class="phase-pill" aria-label="construction-phase">
+        <span class="phase-title">CONSTRUCTION PHASE</span>
+        <input id="phase-slider" type="range" min="0" max="0" value="0">
+        <span id="phase-label" class="phase-count">0/0</span>
       </div>
 
     </div>
@@ -461,11 +514,61 @@
     document.getElementById('sidebar-toggle').addEventListener('click', toggleSidebar);
     document.getElementById('sidebar-close').addEventListener('click', () => sidebar.classList.remove('open'));
 
+    // Settings UI
+    const settingsToggle = document.getElementById('settings-toggle');
+    const settingsPanel = document.getElementById('settings-panel');
+
+    // Default settings (persist to localStorage)
+    let selectionOutlineMode = localStorage.getItem('outlineMode') || 'edges'; // 'edges' | 'box' | 'none'
+    let hitboxSize = localStorage.getItem('hitboxSize') || 'normal'; // 'normal' | 'large'
+    let hitboxFactor = (hitboxSize === 'large') ? 1.8 : 1.0;
+
+    // Track currently selected mesh so we can reapply outline when settings change
+    let selectedMesh = null;
+
+    // Track last phase notice to prevent repeated popups on input events
+    let lastPhaseNoticeIdx = -1;
+
+    // Initialize UI state for settings
+    const outlineInputs = document.querySelectorAll('input[name="outline-mode"]');
+    const hitboxInputs = document.querySelectorAll('input[name="hitbox-size"]');
+    outlineInputs.forEach(i => { i.checked = (i.value === selectionOutlineMode); i.addEventListener('change', (e) => {
+        if (!e.target.checked) return;
+        selectionOutlineMode = e.target.value;
+        localStorage.setItem('outlineMode', selectionOutlineMode);
+        // Reapply outline to the selected mesh if any and clear hover outlines so visual updates are immediate
+        if (selectedMesh) {
+            clearOutline();
+            addOutline(selectedMesh);
+        }
+        clearHover();
+    }); });
+    hitboxInputs.forEach(i => { i.checked = (i.value === hitboxSize); i.addEventListener('change', (e) => {
+        if (!e.target.checked) return;
+        hitboxSize = e.target.value;
+        hitboxFactor = (hitboxSize === 'large') ? 1.8 : 1.0;
+        localStorage.setItem('hitboxSize', hitboxSize);
+    }); });
+
+    if (settingsToggle) {
+      settingsToggle.addEventListener('click', (e) => {
+          if (settingsPanel) settingsPanel.classList.toggle('active');
+          e.stopPropagation();
+      });
+    }
+    // Close settings when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('#settings-panel') && !e.target.closest('#settings-toggle')) {
+            if (settingsPanel) settingsPanel.classList.remove('active');
+        }
+    });
+
     // Data Panel
     const dataPanel = document.getElementById('data-panel');
     const closeData = () => {
         dataPanel.classList.remove('active');
         clearOutline();
+        selectedMesh = null;
     };
     document.getElementById('close-data').addEventListener('click', closeData);
 
@@ -520,6 +623,20 @@
               entry.model.visible = i <= idx;
           });
           label.textContent = `${idx + 1}/${phaseEntries.length}`;
+          // Only show notice when the selected phase index actually changes
+          if (idx !== lastPhaseNoticeIdx) {
+              showPhaseNotice(idx);
+              lastPhaseNoticeIdx = idx;
+          }
+      });
+
+      // Also listen to change for final value (in case input events are noisy)
+      slider.addEventListener('change', (e) => {
+          const idx = parseInt(e.target.value);
+          if (idx !== lastPhaseNoticeIdx) {
+              showPhaseNotice(idx);
+              lastPhaseNoticeIdx = idx;
+          }
       });
       // Initial Apply
       phaseEntries.forEach((entry, i) => entry.model.visible = true);
@@ -533,7 +650,11 @@
         const div = document.createElement('div');
         div.className = 'tree-item';
         div.innerHTML = `<span class="tree-icon">📁</span> ${name}`;
-        div.addEventListener('click', () => selectObject(object, name)); // Select entire phase group
+        div.addEventListener('click', () => { selectObject(object, name); sidebar.classList.remove('open'); // Close sidebar on selection
+            // Find phase index and show notice
+            const idx = phaseEntries.findIndex(p => p.name === name);
+            if (idx >= 0) showPhaseNotice(idx, true);
+        }); // Select entire phase group
         container.appendChild(div);
 
         // Children (Meshes) - Flattened slightly for mobile readable
@@ -576,13 +697,20 @@
             tempMatrix.identity().extractRotation(controller.matrixWorld);
             raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
             raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
             const intersects = raycaster.intersectObjects(modelGroup.children, true);
+            let picked = null;
             if (intersects.length > 0) {
                 const hit = intersects.find(x => x.object.isMesh);
-                if (hit) {
-                    selectObject(hit.object, hit.object.name);
-                    sidebar.classList.remove('open');
-                }
+                if (hit) picked = hit.object;
+            }
+            if (!picked && hitboxFactor > 1.0) {
+                picked = broadRaycastPick(raycaster, hitboxFactor);
+            }
+
+            if (picked) {
+                selectObject(picked, picked.name);
+                sidebar.classList.remove('open');
             } else {
                 closeData();
             }
@@ -607,13 +735,19 @@
         
         // Intersect
         const intersects = raycaster.intersectObjects(modelGroup.children, true);
-        
+        let picked = null;
         if (intersects.length > 0) {
             const hit = intersects.find(x => x.object.isMesh);
-            if(hit) {
-                selectObject(hit.object, hit.object.name);
-                sidebar.classList.remove('open');
-            }
+            if (hit) picked = hit.object;
+        }
+        // Broad-phase hit using bounding spheres when normal intersects fail or when "larger" hitbox is enabled
+        if (!picked && hitboxFactor > 1.0) {
+            picked = broadRaycastPick(raycaster, hitboxFactor);
+        }
+
+        if (picked) {
+            selectObject(picked, picked.name);
+            sidebar.classList.remove('open');
         } else {
             closeData();
         }
@@ -662,14 +796,24 @@
                     hoveredObject = hit.object;
                     // Create thin edge outline (matches model-view/marker visuals)
                     if (hoveredObject.geometry) {
-                        const edges = new THREE.EdgesGeometry(hoveredObject.geometry, 15);
-                        const line = new THREE.LineSegments(
-                            edges,
-                            new THREE.LineBasicMaterial({ color: 0x0099ff, depthTest: false })
-                        );
-                        line.renderOrder = 998;
-                        hoveredObject.add(line);
-                        hoverOutline = line;
+                        if (selectionOutlineMode === 'box') {
+                            const box = new THREE.BoxHelper(hoveredObject, 0x0099ff);
+                            box.material.depthTest = false;
+                            box.renderOrder = 998;
+                            scene.add(box);
+                            hoverOutline = box;
+                        } else if (selectionOutlineMode === 'edges') {
+                            const edges = new THREE.EdgesGeometry(hoveredObject.geometry, 15);
+                            const line = new THREE.LineSegments(
+                                edges,
+                                new THREE.LineBasicMaterial({ color: 0x0099ff, depthTest: false })
+                            );
+                            line.renderOrder = 998;
+                            hoveredObject.add(line);
+                            hoverOutline = line;
+                        } else {
+                            hoverOutline = null;
+                        }
                     }
                 }
                 cursorEl.classList.add('hit');
@@ -688,10 +832,182 @@
         }
     });
 
+    // Phase notice helper: show top floating notice for 3 seconds
+    // Helper to recursively find keys matching pattern inside an object
+    function findKeyRecursive(obj, pattern) {
+        if (!obj || typeof obj !== 'object') return null;
+        for (const key of Object.keys(obj)) {
+            try {
+                if (pattern.test(key)) return obj[key];
+            } catch (e) {}
+            const val = obj[key];
+            if (val && typeof val === 'object') {
+                const found = findKeyRecursive(val, pattern);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    function getPhaseDate(idx) {
+        if (!phaseEntries || !phaseEntries[idx]) return null;
+        const name = phaseEntries[idx].name;
+        if (!phaseManifestData) return null;
+        const data = phaseManifestData[name];
+        if (data == null) return null;
+        // If data is a primitive string/number (common manifest format like "Phase_0": "10/11/2025 ..."), use it directly
+        if (typeof data === 'string' || typeof data === 'number') {
+            try {
+                const d = new Date(data);
+                if (!isNaN(d)) return d.toLocaleString();
+            } catch (e) {}
+            return String(data);
+        }
+        // Try common date keys on object entries
+        const candidates = ['date','phaseDate','phase_date','startDate','start_date','start','timestamp'];
+        for (const key of candidates) {
+            let val = data[key];
+            if (!val && data.metadata) val = data.metadata[key];
+            if (val) {
+                // Format timestamps or ISO date strings
+                try {
+                    const d = new Date(val);
+                    if (!isNaN(d)) return d.toLocaleString();
+                } catch (e) { return String(val); }
+                return String(val);
+            }
+        }
+        return null;
+    }
+
+    // Tries to extract the TimeLiner / Task Start planned value from phase manifest
+    function getPhaseTimeLinerValue(idx) {
+        if (!phaseEntries || !phaseEntries[idx]) return null;
+        const name = phaseEntries[idx].name;
+        if (!phaseManifestData) return null;
+        const data = phaseManifestData[name];
+        if (data == null) return null;
+
+        // If data is a primitive string/number, assume it's the phase date/time and return it
+        if (typeof data === 'string' || typeof data === 'number') return data;
+
+        // First try exact key name (common variant) - user-specified key
+        const exactKey = Object.keys(data).find(k => k.toLowerCase().includes('timeliner') && k.toLowerCase().includes('task start'));
+        if (exactKey) return data[exactKey];
+
+        // Try recursive search for keys that mention TimeLiner and Task Start / Planned
+        const pattern = /timeliner.*task.*start|task.*start.*timeliner|contained in task start/i;
+        const found = findKeyRecursive(data, pattern);
+        if (found != null) return found;
+
+        // As a fallback, search for keys that contain 'timeliner' anywhere
+        const tlKey = Object.keys(data).find(k => k.toLowerCase().includes('timeliner'));
+        if (tlKey) return data[tlKey];
+
+        // Look inside metadata if present
+        if (data.metadata) {
+            const metaFound = findKeyRecursive(data.metadata, pattern);
+            if (metaFound != null) return metaFound;
+        }
+        return null;
+    }
+
+    function showPhaseNotice(idx, force = false) {
+        const notice = document.getElementById('phase-notice');
+        if (!notice) return;
+        if (!force && idx === lastPhaseNoticeIdx) return; // don't repeat unless forced
+
+        const name = phaseEntries[idx] ? phaseEntries[idx].name : `Phase ${idx+1}`;
+        // Build a nice label for phase number: extract digits if present, else index
+        let phaseLabel = null;
+        const m = (phaseEntries[idx] && phaseEntries[idx].name) ? phaseEntries[idx].name.match(/(\d+)/) : null;
+        if (m) phaseLabel = `Phase ${m[1]}`; else phaseLabel = `Phase ${idx+1}`;
+
+        // Prefer the TimeLiner Task Start planned value per user request
+        const timeVal = getPhaseTimeLinerValue(idx);
+        let displayDate = null;
+        if (timeVal) {
+            // Format if looks like a date
+            try {
+                const d = new Date(timeVal);
+                if (!isNaN(d)) displayDate = d.toLocaleString(); else displayDate = String(timeVal);
+            } catch (e) { displayDate = String(timeVal); }
+        } else {
+            // fallback to general phase date
+            displayDate = getPhaseDate(idx);
+        }
+
+        notice.innerHTML = `<div class="phase-name">${phaseLabel}</div><div class="phase-value">${displayDate || ''}</div>`;
+        notice.classList.remove('hiding');
+        notice.classList.add('show');
+
+        clearTimeout(notice._hideTimer);
+        notice._hideTimer = setTimeout(() => {
+            // Start hiding transition
+            notice.classList.remove('show');
+            notice.classList.add('hiding');
+            // Remove hiding class after transition (300ms)
+            clearTimeout(notice._clearTimer);
+            notice._clearTimer = setTimeout(() => {
+                notice.classList.remove('hiding');
+                // Optionally clear content after hide
+                // notice.innerHTML = '';
+            }, 350);
+        }, 3000);
+
+        lastPhaseNoticeIdx = idx;
+    }
+
+    // Broad-phase pick using bounding spheres (useful for small meshes)
+    function broadRaycastPick(raycaster, factor = 1.0) {
+        let best = null;
+        let bestT = Infinity;
+        const tmpV = new THREE.Vector3();
+        modelGroup.children.forEach(child => {
+            child.traverse((mesh) => {
+                if (!mesh.isMesh || !mesh.geometry) return;
+                if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
+                // Bounding sphere in local space
+                tmpV.copy(mesh.geometry.boundingSphere.center);
+                // Convert to world
+                mesh.localToWorld(tmpV);
+                const dist = raycaster.ray.distanceToPoint(tmpV);
+                const maxScale = Math.max(mesh.scale.x, mesh.scale.y, mesh.scale.z);
+                const radius = mesh.geometry.boundingSphere.radius * maxScale;
+                if (dist <= radius * factor) {
+                    // Measure t along ray to pick nearest
+                    const originToCenter = new THREE.Vector3().subVectors(tmpV, raycaster.ray.origin);
+                    const t = originToCenter.dot(raycaster.ray.direction);
+                    if (t >= 0 && t < bestT) {
+                        bestT = t;
+                        best = mesh;
+                    }
+                }
+            });
+        });
+        return best;
+    }
+
+    function findPhaseIndexByObject(object) {
+        if (!phaseEntries) return -1;
+        for (let i = 0; i < phaseEntries.length; i++) {
+            const root = phaseEntries[i].model;
+            let found = false;
+            root.traverse((child) => { if (child === object) found = true; });
+            if (found) return i;
+        }
+        return -1;
+    }
+
     function selectObject(object, name) {
         sidebar.classList.remove('open');
         clearOutline();
-        if(object.isMesh) addOutline(object);
+        selectedMesh = object;
+        if (object.isMesh) addOutline(object);
+
+        // Show phase notice for the phase the object belongs to (if known)
+        const pidx = findPhaseIndexByObject(object);
+        if (pidx >= 0) showPhaseNotice(pidx, true);
 
         const title = document.getElementById('data-title');
         const content = document.getElementById('data-content');
@@ -724,25 +1040,41 @@
 
     function addOutline(mesh) {
         if (!mesh.isMesh) return;
-        // Use edge geometry for a tight mesh outline (same as model-view/marker)
-        const edges = new THREE.EdgesGeometry(mesh.geometry, 15);
-        const outlineLineMaterial = new THREE.LineBasicMaterial({
-            color: 0x0099ff,
-            fog: false,
-            transparent: true,
-            opacity: 1.0,
-            depthTest: false,
-            depthWrite: false
-        });
-        const outlineEdges = new THREE.LineSegments(edges, outlineLineMaterial);
-        outlineEdges.renderOrder = 999;
-        mesh.add(outlineEdges);
-        outlineObject = outlineEdges;
+        // Ensure only one selection outline exists at a time
+        // (clearOutline should be called by the caller before addOutline)
+
+        if (selectionOutlineMode === 'box') {
+            const box = new THREE.BoxHelper(mesh, 0x0099ff);
+            box.material.depthTest = false;
+            box.renderOrder = 999;
+            // Add to scene (BoxHelper is in world space)
+            scene.add(box);
+            outlineObject = box;
+        } else if (selectionOutlineMode === 'edges') {
+            if (!mesh.geometry) return;
+            const edges = new THREE.EdgesGeometry(mesh.geometry, 15);
+            const outlineLineMaterial = new THREE.LineBasicMaterial({
+                color: 0x0099ff,
+                fog: false,
+                transparent: true,
+                opacity: 1.0,
+                depthTest: false,
+                depthWrite: false
+            });
+            const outlineEdges = new THREE.LineSegments(edges, outlineLineMaterial);
+            outlineEdges.renderOrder = 999;
+            mesh.add(outlineEdges);
+            outlineObject = outlineEdges;
+        } else {
+            // 'none' selected: do nothing
+            outlineObject = null;
+        }
     }
 
     function clearOutline() {
         if (outlineObject) {
-            scene.remove(outlineObject);
+            if (outlineObject.parent) outlineObject.parent.remove(outlineObject);
+            else scene.remove(outlineObject);
             outlineObject = null;
         }
     }
