@@ -3,7 +3,7 @@
 <head>
   <title>AR Hit-Test Inspector</title>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
   
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -88,7 +88,7 @@
 
     /* Phase notice */
     .phase-notice {
-      position: fixed; left: 50%; top: 12px; transform: translate(-50%, -10px);
+      position: fixed; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 12px); transform: translate(-50%, -10px);
       background: rgba(10,10,10,0.95); color: white; font-size: 14px; padding: 10px 18px; border-radius: 10px;
       z-index: 9999; box-shadow: 0 8px 30px rgba(0,0,0,0.6); opacity: 0; pointer-events: none; transition: opacity 0.3s ease, transform 0.3s ease;
       text-align: center; min-width: 220px; max-width: 75%;
@@ -332,6 +332,10 @@
         <label><input type="radio" name="hitbox-size" value="normal"> Normal</label>
         <label><input type="radio" name="hitbox-size" value="large"> Larger</label>
       </div>
+      <div class="settings-row">
+        <div class="setting-label">Display</div>
+        <label><input type="checkbox" id="setting-fullscreen-gesture"> Enter fullscreen on gesture</label>
+      </div>
     </div>
 
     <!-- DATA PANEL (Bottom Sheet) -->
@@ -550,6 +554,33 @@
         localStorage.setItem('hitboxSize', hitboxSize);
     }); });
 
+    // Fullscreen on gesture setting (persisted)
+    let fullscreenOnGesture = localStorage.getItem('fullscreenOnGesture') === '1';
+    const fsCheckbox = document.getElementById('setting-fullscreen-gesture');
+    if (fsCheckbox) {
+        fsCheckbox.checked = fullscreenOnGesture;
+        fsCheckbox.addEventListener('change', (e) => {
+            fullscreenOnGesture = !!e.target.checked;
+            localStorage.setItem('fullscreenOnGesture', fullscreenOnGesture ? '1' : '0');
+        });
+    }
+
+    // Helper to attempt fullscreen using the user gesture (safe vendor fallbacks)
+    function tryEnterFullscreen() {
+        if (!fullscreenOnGesture) return;
+        if (document.fullscreenElement) return;
+        const el = document.documentElement;
+        const request = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+        if (!request) return;
+        try {
+            const p = request.call(el);
+            if (p && typeof p.then === 'function') p.catch(err => console.warn('Fullscreen request failed:', err));
+        } catch (err) {
+            // Some older WebKit implementations require direct call without promise
+            try { request.call(el); } catch (e) { console.warn('Fullscreen request failed:', e); }
+        }
+    }
+
     if (settingsToggle) {
       settingsToggle.addEventListener('click', (e) => {
           if (settingsPanel) settingsPanel.classList.toggle('active');
@@ -597,7 +628,7 @@
         }
     }
     
-    btnPlace.addEventListener('click', () => setMode('place'));
+    btnPlace.addEventListener('click', (e) => { tryEnterFullscreen(); setMode('place'); });
     btnSelect.addEventListener('click', () => setMode('select'));
 
     // Scale Slider
