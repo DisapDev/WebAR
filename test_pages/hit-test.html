@@ -54,14 +54,16 @@
     #top-bar > * { pointer-events: auto; }
 
     #back-btn {
-      background: rgba(255,255,255,0.2); backdrop-filter: blur(10px);
+      font-family: "Google Sans Flex", sans-serif;
+      background: rgba(20,20,20,0.85);
       border: 1px solid rgba(255,255,255,0.1);
       color: white; text-decoration: none;
       padding: 8px 16px; border-radius: 20px; font-size: 14px; font-weight: 500;
       display: flex; align-items: center; gap: 6px;
     }
     #sidebar-toggle {
-      background: rgba(255,255,255,0.2); backdrop-filter: blur(10px);
+      font-family: "Google Sans Flex", sans-serif;
+      background: rgba(20,20,20,0.85);
       border: 1px solid rgba(255,255,255,0.1);
       color: white; width: 40px; height: 40px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
@@ -69,7 +71,8 @@
     }
     /* Settings button matches sidebar toggle */
     #settings-toggle {
-      background: rgba(255,255,255,0.2); backdrop-filter: blur(10px);
+      font-family: "Google Sans Flex", sans-serif;
+      background: rgba(20,20,20,0.85);
       border: 1px solid rgba(255,255,255,0.1);
       color: white; width: 40px; height: 40px; border-radius: 50%;
       display: flex; align-items: center; justify-content: center;
@@ -123,14 +126,13 @@
 
     /* Phasing Control (moved to bottom) */
     .phase-pill {
-      background: rgba(20, 20, 20, 0.9); backdrop-filter: blur(10px);
-      padding: 6px 12px; border-radius: 20px;
+      padding: 8px 14px; border-radius: 16px;
       display: flex; align-items: center; gap: 10px;
-      border: 1px solid var(--border);
+      box-sizing: border-box;
     }
-    .phase-title { font-size: 12px; color: var(--text-dim); text-transform: uppercase; font-weight: 600; }
-    .phase-count { font-size: 12px; color: var(--text-dim); min-width:36px; text-align:right; }
-    #phase-slider { width: 120px; cursor: pointer; accent-color: var(--primary); }
+    .phase-title { font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; }
+    .phase-count { font-size: 11px; color: var(--text-dim); min-width:34px; text-align:right; margin-left: 8px; }
+    #phase-slider { width: 120px; cursor: pointer; accent-color: var(--primary); height: 4px; }
 
     /* Tree Container */
     #tree-container { flex: 1; overflow-y: auto; padding-bottom: 20px; }
@@ -156,27 +158,91 @@
 
     /* Mode Switcher (Place vs Select) */
     .mode-switch {
-      background: rgba(20, 20, 20, 0.9); backdrop-filter: blur(10px);
-      padding: 6px; border-radius: 30px;
-      display: flex; gap: 5px; border: 1px solid var(--border);
+      display: block;
+      background: rgba(20,20,20,0.85);
+      padding: 8px 8px;
+      border-radius: 36px;
+      border: 1px solid var(--border);
     }
+    .mode-pill { display:flex; gap:10px; justify-content:center; align-items:center; }
     .mode-btn {
-      padding: 10px 20px; border-radius: 24px; border: none;
-      background: transparent; color: var(--text-dim);
-      font-weight: 500; font-size: 14px; cursor: pointer;
-      transition: all 0.2s;
+      font-family: "Google Sans Flex", sans-serif;
+      background: rgba(20,20,20,0.85);
+      color: white;
+      border: 1px solid rgba(255,255,255,0.04);
+      padding: 8px 12px;
+      border-radius: 20px;
+      font-weight: 400;
+      cursor: pointer;
     }
-    .mode-btn.active { background: var(--primary); color: #000; box-shadow: 0 2px 10px rgba(0, 210, 255, 0.3); }
+    .mode-btn.active {
+      background: linear-gradient(180deg, var(--primary), #00c0ff);
+      color: black;
+      box-shadow: 0 6px 20px rgba(0, 210, 255, 0.12);
+    }
+    
+    /* Controls Row: place scale + phase side-by-side (more compact) */
+    .controls-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 6px 8px;
+      border-radius: 16px;
+      background: rgba(20,20,20,0.85);
+      border: 1px solid var(--border);
+      max-width: 720px;
+    }
+    /* Use same outer margin for child pills so left/right feel balanced */
+    .controls-row .scale-container { margin: 6px 0; }
+    .controls-row .phase-pill { margin: 6px 0; }
 
-    /* Scale Slider Container */
+    /* Scale Slider Container (compact) */
     .scale-container {
-      background: rgba(20, 20, 20, 0.8); backdrop-filter: blur(10px);
-      padding: 10px 20px; border-radius: 20px;
+      padding: 8px 14px; border-radius: 16px;
       display: flex; align-items: center; gap: 10px;
-      margin-bottom: 10px;
+      margin-bottom: 8px;
+      box-sizing: border-box;
     }
-    .scale-label { font-size: 12px; color: var(--text-dim); text-transform: uppercase; font-weight: bold; }
-    #scale-slider { width: 150px; accent-color: var(--primary); }
+    .scale-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; }
+    #scale-slider { width: 120px; max-width: 100%; accent-color: var(--primary); height: 4px; }
+
+    /* smaller slider appearance */
+    input[type="range"]::-webkit-slider-thumb { width: 14px; height: 14px; margin-top: -5px; }
+    input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; }
+    input[type="range"] { height: 6px; }
+
+    /* Responsive: stack controls on narrow screens only */
+    @media (max-width: 640px) {
+      /* Give the bottom container a little horizontal padding so children don't touch edges */
+      #bottom-controls { padding: 0 14px; }
+
+      /* Stack the controls vertically while keeping them in the same container */
+      .controls-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+        width: 100%;
+        max-width: 404px;
+        padding: 8px;
+      }
+
+      /* Make each pill fill the available width */
+      .controls-row .scale-container,
+      .controls-row .phase-pill {
+        width: 100%;
+        box-sizing: border-box;
+        margin: 6px 0;
+      }
+
+      /* Give the scale row space between label and slider */
+      .scale-container { justify-content: space-between; }
+      .scale-container .scale-label { margin-right: 12px; }
+      #scale-slider { width: 100%; max-width: none; }
+
+      /* Make phase slider expand to full width in stacked layout */
+      .phase-pill { justify-content: space-between; gap: 12px; }
+      #phase-slider { width: 100%; }
+    }
 
     /* Select mode cursor (temporary on-screen pointer) -- VISUAL CURSOR REMOVED (kept for legacy/assistive reasons) */
     .select-cursor {
@@ -270,9 +336,11 @@
     
     /* AR Button Injection Styling Override */
     #ar-button { 
-      background: var(--primary) !important; color: black !important; font-weight: bold !important;
+      font-family: "Google Sans Flex";
+      background: var(--primary) !important; color: black !important;
       padding: 12px 30px !important; border-radius: 30px !important; border: none !important;
       font-size: 16px !important; opacity: 1 !important;
+      width: auto !important; height: auto !important;
     }
 
     /* --- DESKTOP / LANDSCAPE TWEAKS --- */
@@ -309,7 +377,7 @@
     <h1>AR Inspection</h1>
     <p>View the phasing timeline and inspect BIM data directly on site.</p>
     <!-- ARButton will be injected here via JS -->
-    <a href="model-view.html" style="color: #666; font-size: 12px; margin-top: 30px; text-decoration: none;">Exit to Inspector</a>
+    <a href="model-view.html" style="color: #ffffff; font-size: 12px; margin-top: 30px; text-decoration: none;">Exit to Inspector</a>
   </div>
 
   <!-- UI OVERLAY -->
@@ -378,23 +446,26 @@
     <!-- BOTTOM CONTROLS -->
     <div id="bottom-controls">
 
-      <!-- Mode Switcher (Top) -->
-      <div class="mode-switch">
-        <button class="mode-btn active" id="btn-place">✢ Place</button>
-        <button class="mode-btn" id="btn-select">👆 Select</button>
+      <!-- Mode Switcher: Place / Select -->
+      <div class="mode-switch" aria-hidden="false">
+        <div class="mode-pill" role="tablist" aria-label="Mode Switcher">
+          <button id="btn-place" class="mode-btn active" aria-pressed="true">✢ Place</button>
+          <button id="btn-select" class="mode-btn" aria-pressed="false">👆 Select</button>
+        </div>
       </div>
 
-      <!-- Scale Slider (Middle) -->
-      <div class="scale-container">
-        <span class="scale-label">Scale</span>
-        <input id="scale-slider" type="range" min="0.01" max="0.2" step="0.01" value="0.05">
-      </div>
+      <!-- Compact Controls Row: Scale + Phase side-by-side -->
+      <div class="controls-row">
+        <div class="scale-container">
+          <span class="scale-label">Scale</span>
+          <input id="scale-slider" type="range" min="0.01" max="0.2" step="0.01" value="0.05">
+        </div>
 
-      <!-- Phase Pill (Bottom) -->
-      <div class="phase-pill" aria-label="construction-phase">
-        <span class="phase-title">CONSTRUCTION PHASE</span>
-        <input id="phase-slider" type="range" min="0" max="0" value="0">
-        <span id="phase-label" class="phase-count">0/0</span>
+        <div class="phase-pill" aria-label="construction-phase">
+          <span class="phase-title">Phase</span>
+          <input id="phase-slider" type="range" min="0" max="0" value="0">
+          <span id="phase-label" class="phase-count">0/0</span>
+        </div>
       </div>
 
     </div>
@@ -479,6 +550,21 @@
     // State Variables
     let currentMode = 'place'; // 'place' or 'select'
     let modelScale = 0.05;
+
+    // Mode Switcher Buttons
+    (function() {
+      function setMode(mode){
+        currentMode = mode;
+        const bp = document.getElementById('btn-place');
+        const bs = document.getElementById('btn-select');
+        if (bp) { bp.classList.toggle('active', mode === 'place'); bp.setAttribute('aria-pressed', mode === 'place'); }
+        if (bs) { bs.classList.toggle('active', mode === 'select'); bs.setAttribute('aria-pressed', mode === 'select'); }
+      }
+      const bp = document.getElementById('btn-place');
+      const bs = document.getElementById('btn-select');
+      if (bp) bp.addEventListener('click', (e)=>{ e.stopPropagation(); setMode('place'); });
+      if (bs) bs.addEventListener('click', (e)=>{ e.stopPropagation(); setMode('select'); });
+    })();
     
     const loader = new GLTFLoader();
     let phaseEntries = [];
@@ -650,31 +736,8 @@
     };
     document.getElementById('close-data').addEventListener('click', closeData);
 
-    // Mode Switcher
-    const btnPlace = document.getElementById('btn-place');
-    const btnSelect = document.getElementById('btn-select');
-    
-    function setMode(mode) {
-        currentMode = mode;
-        const cursorEl = document.getElementById('select-cursor');
-        if(mode === 'place') {
-            btnPlace.classList.add('active');
-            btnSelect.classList.remove('active');
-            reticle.visible = false; // Will be managed by render loop
-            clearHover();
-            // ensure visual cursor stays hidden
-            if (cursorEl) cursorEl.style.display = 'none';
-        } else {
-            btnSelect.classList.add('active');
-            btnPlace.classList.remove('active');
-            reticle.visible = false; // Hide reticle in select mode
-            // Visual cursor intentionally removed: functionality still works on clicks anywhere
-            if (cursorEl) cursorEl.style.display = 'none';
-        }
-    }
-    
-    btnPlace.addEventListener('click', (e) => { tryEnterFullscreen(); setMode('place'); });
-    btnSelect.addEventListener('click', () => setMode('select'));
+    // Mode Switcher present in UI — buttons toggle the `currentMode` variable.
+    // If you want to expose toggles later, re-introduce UI and rebind event handlers. (No runtime references remain.)
 
     // Scale Slider
     const scaleSlider = document.getElementById('scale-slider');
