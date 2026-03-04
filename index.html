@@ -40,32 +40,52 @@
         Test Models
     </h1>
 
-    <!-- Project 1: Test 6 -->
-    <div class="project-card">
-        <div>
-            <h2>Office Tower (Test 6)</h2>
-            <p>Status: Foundation Phase</p>
-        </div>
-        <a href="test_pages/model-view.html?id=test6" class="btn">Open Inspector</a>
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
+        <div style="color:#aaa; font-size:14px">Auto-generated from <code>models.json</code></div>
+        <button id="refresh-btn" class="btn" style="background: #ffffff;">Refresh</button>
     </div>
 
-    <!-- Project 2: Test 7 -->
-    <div class="project-card">
-        <div>
-            <h2>Bridge Site (Test 7)</h2>
-            <p>Status: Bridge</p>
-        </div>
-        <a href="test_pages/model-view.html?id=test7" class="btn">Open Inspector</a>
-    </div>
+    <div id="models-list"></div>
 
-    <div class="project-card">
-        <div>
-            <h2>Bridge Site (Test 8)</h2>
-            <p>Status: Bridge (Copy of Test7)</p>
-        </div>
-        <a href="test_pages/model-view.html?id=test8" class="btn">Open Inspector</a>
-    </div>
-    
+    <script>
+        async function fetchModels() {
+            try {
+                const res = await fetch('models.json', { cache: 'no-store' });
+                if (!res.ok) throw new Error('Failed to fetch models.json');
+                const models = await res.json();
+                renderModels(models);
+            } catch (e) {
+                document.getElementById('models-list').innerHTML = `<div style="color:#f88">Error loading models: ${e.message}</div>`;
+                console.error(e);
+            }
+        }
 
+        function renderModels(models) {
+            const container = document.getElementById('models-list');
+            container.innerHTML = '';
+            if (!models || !models.length) {
+                container.innerHTML = '<div style="color:#aaa">No models found.</div>';
+                return;
+            }
+            models.forEach(m => {
+                const card = document.createElement('div');
+                card.className = 'project-card';
+                const title = document.createElement('div');
+                title.innerHTML = `<h2>${m.name || m.id}</h2>`;
+                const link = document.createElement('a');
+                link.className = 'btn';
+                link.href = `test_pages/model-view.html?id=${encodeURIComponent(m.id)}`;
+                link.textContent = 'Open Inspector';
+                card.appendChild(title);
+                card.appendChild(link);
+                container.appendChild(card);
+            });
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            document.getElementById('refresh-btn').addEventListener('click', fetchModels);
+            fetchModels();
+        });
+    </script>
 </body>
 </html>

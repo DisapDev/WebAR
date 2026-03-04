@@ -3,7 +3,7 @@
 <head>
   <title>AR Marker Inspector</title>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
   
   <!-- Google Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -11,82 +11,356 @@
   <link href="https://fonts.googleapis.com/css2?family=Google+Sans+Flex:opsz,wght@6..144,1..1000&display=swap" rel="stylesheet">
 
   <style>
-    body { margin: 0; overflow: hidden; font-family: "Google Sans Flex", sans-serif; background: black; }
-    
-    /* --- AR START SCREEN --- */
-    #start-screen {
-      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-      background: rgba(0,0,0,0.8); z-index: 9999;
-      display: flex; flex-direction: column; align-items: center; justify-content: center;
-      color: white; text-align: center;
+    /* --- CORE VARIABLES & RESET --- */
+    :root {
+      --primary: #00D2FF;
+      --bg-dark: rgba(20, 20, 20, 0.9);
+      --bg-darker: #111;
+      --border: #444;
+      --text: #eee;
+      --text-dim: #aaa;
+      --radius: 12px;
+      --spacing: 16px;
     }
-    #start-btn {
-      padding: 15px 30px; font-size: 18px; font-weight: bold; 
-      background: #00D2FF; border: none; border-radius: 30px; cursor: pointer; margin-top: 20px;
+    
+    body { 
+      margin: 0; overflow: hidden; 
+      font-family: "Google Sans Flex", sans-serif; 
+      background: black; 
+      color: var(--text);
+      -webkit-tap-highlight-color: transparent;
     }
 
-    /* --- SIDEBAR OVERLAY (Floating) --- */
-    #sidebar {
-      position: absolute; top: 0; left: 0; width: 200px; height: 100%;
-      background: rgba(20, 20, 20, 0.85); /* Semi-transparent for AR */
-      border-right: 1px solid #444;
-      overflow-y: auto; color: #ddd; z-index: 100;
+    /* --- DOM OVERLAY CONTAINER --- */
+    #dom-overlay { 
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+      pointer-events: none; /* Let touches pass to canvas by default */
       display: flex; flex-direction: column;
-      transition: transform 0.3s ease;
-      transform: translateX(-100%); /* Hidden by default on mobile AR */
-      backdrop-filter: blur(5px);
+    }
+    /* Re-enable pointer events for UI elements */
+    #dom-overlay > * { pointer-events: auto; }
+    
+    /* --- HEADER / TOP BAR --- */
+    #top-bar {
+      position: absolute; top: 0; left: 0; width: 100%;
+      height: 60px;
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 var(--spacing);
+      box-sizing: border-box;
+      background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent);
+      z-index: 100;
+      pointer-events: none; /* Let clicks pass through empty space */
+    }
+    #top-bar > * { pointer-events: auto; }
+
+    #back-btn {
+      font-family: "Google Sans Flex", sans-serif;
+      background: rgba(20,20,20,0.85);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: white; text-decoration: none;
+      padding: 8px 16px; border-radius: 20px; font-size: 14px; font-weight: 500;
+      display: flex; align-items: center; gap: 6px;
+    }
+    #sidebar-toggle {
+      font-family: "Google Sans Flex", sans-serif;
+      background: rgba(20,20,20,0.85);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: white; width: 40px; height: 40px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 20px; cursor: pointer;
+    }
+    /* Settings button matches sidebar toggle */
+    #settings-toggle {
+      font-family: "Google Sans Flex", sans-serif;
+      background: rgba(20,20,20,0.85);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: white; width: 40px; height: 40px; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 16px; cursor: pointer; margin-left: 8px;
+    }
+    .settings-panel {
+      position: absolute; top: 60px; left: 20px; z-index: 110;
+      background: rgba(20,20,20,0.95); border: 1px solid #444; border-radius: 8px;
+      padding: 10px; color: #ddd; min-width: 220px; display: none; box-shadow: 0 6px 20px rgba(0,0,0,0.6);
+    }
+    .settings-panel.active { display: block; }
+    .settings-header { font-size: 13px; margin-bottom: 8px; }
+    .settings-row { margin-bottom: 10px; display:flex; flex-direction:column; gap:6px; }
+    .setting-label { color: #aaa; font-size: 12px; text-transform: uppercase; }
+    .settings-panel label { font-size: 13px; color: #ddd; }
+
+    /* Phase notice */
+    .phase-notice {
+      position: fixed; left: 50%; top: calc(env(safe-area-inset-top, 0px) + 12px); transform: translate(-50%, -10px);
+      background: rgba(10,10,10,0.95); color: white; font-size: 14px; padding: 10px 18px; border-radius: 10px;
+      z-index: 9999; box-shadow: 0 8px 30px rgba(0,0,0,0.6); opacity: 0; pointer-events: none; transition: opacity 0.3s ease, transform 0.3s ease;
+      text-align: center; min-width: 220px; max-width: 75%;
+      border: 1px solid rgba(255,255,255,0.06);
+    }
+    .phase-notice .phase-name { font-weight: 600; margin-bottom: 6px; }
+    .phase-notice .phase-value { font-size: 13px; color: #e6eef6; opacity: 0.95; }
+    .phase-notice.show { opacity: 1; transform: translate(-50%, 0); }
+    .phase-notice.hiding { opacity: 0; transform: translate(-50%, -6px); }
+
+    /* --- HIERARCHY SIDEBAR --- */
+    #sidebar {
+      position: absolute; top: 0; left: 0; height: 100%;
+      width: 280px;
+      background: var(--bg-dark);
+      border-right: 1px solid var(--border);
+      backdrop-filter: blur(10px);
+      transform: translateX(-100%);
+      transition: transform 0.3s cubic-bezier(0.4, 0.0, 0.2, 1);
+      z-index: 200;
+      display: flex; flex-direction: column;
     }
     #sidebar.open { transform: translateX(0); }
     
-    /* Toggle Button for Sidebar */
-    #sidebar-toggle {
-      position: absolute; top: 20px; left: 20px; z-index: 101;
-      background: rgba(0,0,0,0.6); color: white; border: 1px solid #444;
-      padding: 8px 12px; border-radius: 5px; cursor: pointer;
+    /* Sidebar Header */
+    .sidebar-header {
+      padding: 20px; border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .sidebar-title { font-weight: 600; font-size: 16px; }
+    #sidebar-close { background: none; border: none; color: var(--text-dim); font-size: 24px; cursor: pointer; }
+
+    /* Phasing Control (moved to bottom) */
+    .phase-pill {
+      padding: 8px 14px; border-radius: 16px;
+      display: flex; align-items: center; gap: 10px;
+      box-sizing: border-box;
+    }
+    .phase-title { font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 600; letter-spacing: 0.5px; }
+    .phase-count { font-size: 11px; color: var(--text-dim); min-width:34px; text-align:right; margin-left: 8px; }
+    #phase-slider { width: 120px; cursor: pointer; accent-color: var(--primary); height: 4px; }
+
+    /* Tree Container */
+    #tree-container { flex: 1; overflow-y: auto; padding-bottom: 20px; }
+    
+    /* Tree Items */
+    .tree-item { 
+      padding: 10px 20px; cursor: pointer; font-size: 14px; 
+      display: flex; align-items: center; gap: 10px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      transition: background 0.2s;
+    }
+    .tree-item:hover { background: rgba(255,255,255,0.05); }
+    .tree-item.selected { background: rgba(0, 210, 255, 0.15); border-left: 3px solid var(--primary); }
+    .tree-icon { color: var(--text-dim); font-size: 16px; }
+    
+    /* --- BOTTOM CONTROLS (Floating) --- */
+    #bottom-controls {
+      position: absolute; bottom: 30px; left: 0; width: 100%;
+      display: flex; flex-direction: column; align-items: center; gap: 15px;
+      pointer-events: none; z-index: 90;
+    }
+    #bottom-controls > * { pointer-events: auto; }
+
+    /* Mode Switcher (Place vs Select) */
+    .mode-switch {
+      display: block;
+      background: rgba(20,20,20,0.85);
+      padding: 8px 8px;
+      border-radius: 36px;
+      border: 1px solid var(--border);
+    }
+    .mode-pill { display:flex; gap:10px; justify-content:center; align-items:center; }
+    .mode-btn {
+      font-family: "Google Sans Flex", sans-serif;
+      background: rgba(20,20,20,0.85);
+      color: white;
+      border: 1px solid rgba(255,255,255,0.04);
+      padding: 8px 12px;
+      border-radius: 20px;
+      font-weight: 400;
+      cursor: pointer;
+    }
+    .mode-btn.active {
+      background: linear-gradient(180deg, var(--primary), #00c0ff);
+      color: black;
+      box-shadow: 0 6px 20px rgba(0, 210, 255, 0.12);
+    }
+    
+    /* Controls Row: place scale + phase side-by-side (more compact) */
+    .controls-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 6px 8px;
+      border-radius: 16px;
+      background: rgba(20,20,20,0.85);
+      border: 1px solid var(--border);
+      max-width: 720px;
+    }
+    /* Use same outer margin for child pills so left/right feel balanced */
+    .controls-row .scale-container { margin: 6px 0; }
+    .controls-row .phase-pill { margin: 6px 0; }
+
+    /* Scale Slider Container (compact) */
+    .scale-container {
+      padding: 8px 14px; border-radius: 16px;
+      display: flex; align-items: center; gap: 10px;
+      margin-bottom: 8px;
+      box-sizing: border-box;
+    }
+    .scale-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; font-weight: 700; letter-spacing: 0.5px; }
+    #scale-slider { width: 120px; max-width: 100%; accent-color: var(--primary); height: 4px; }
+
+    /* smaller slider appearance */
+    input[type="range"]::-webkit-slider-thumb { width: 14px; height: 14px; margin-top: -5px; }
+    input[type="range"]::-moz-range-thumb { width: 14px; height: 14px; }
+    input[type="range"] { height: 6px; }
+
+    /* Responsive: stack controls on narrow screens only */
+    @media (max-width: 640px) {
+      /* Give the bottom container a little horizontal padding so children don't touch edges */
+      #bottom-controls { padding: 0 14px; }
+
+      /* Stack the controls vertically while keeping them in the same container */
+      .controls-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+        width: 100%;
+        max-width: 404px;
+        padding: 8px;
+      }
+
+      /* Make each pill fill the available width */
+      .controls-row .scale-container,
+      .controls-row .phase-pill {
+        width: 100%;
+        box-sizing: border-box;
+        margin: 6px 0;
+      }
+
+      /* Give the scale row space between label and slider */
+      .scale-container { justify-content: space-between; }
+      .scale-container .scale-label { margin-right: 12px; }
+      #scale-slider { width: 100%; max-width: none; }
+
+      /* Make phase slider expand to full width in stacked layout */
+      .phase-pill { justify-content: space-between; gap: 12px; }
+      #phase-slider { width: 100%; }
     }
 
-    /* ... REUSED UI STYLES FROM MODEL-VIEW ... */
-    .header { padding: 15px 15px 0 15px; font-weight: bold; border-bottom: 1px solid #444; flex-shrink: 0; }
-    #phase-controls { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
-    #tree-container { flex: 1; overflow-y: auto; }
-    .tree-item { padding: 8px 15px; cursor: pointer; font-size: 14px; border-bottom: 1px solid #333; display: flex; align-items: center; gap: 8px; user-select: none; }
-    .tree-item:hover { background: rgba(255,255,255,0.1); }
-    .tree-item.selected { background: #00D2FF; color: black; }
-    .tree-item.hidden { opacity: 0.5; }
-    
-    /* Visibility/Expand Icons */
-    .expand-btn { width: 20px; text-align: center; flex-shrink: 0; cursor: pointer; font-size: 12px; }
-    .expand-btn.collapsed::before { content: '▶'; }
-    .expand-btn.expanded::before { content: '▼'; }
-    .expand-btn.no-children::before { content: ''; }
-    .visibility-btn { width: 20px; text-align: center; flex-shrink: 0; cursor: pointer; font-size: 14px; margin-left: auto; }
-    .visibility-btn.visible::before { content: '👁'; }
-    .visibility-btn.hidden::before { content: '🚫'; }
+    /* Select mode cursor (temporary on-screen pointer) -- VISUAL CURSOR REMOVED (kept for legacy/assistive reasons) */
+    .select-cursor {
+      position: fixed;
+      width: 16px; height: 16px; border-radius: 50%;
+      background: rgba(255,255,255,0.12);
+      border: 2px solid rgba(255,255,255,0.06);
+      box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+      transform: translate(-50%, -50%) scale(1);
+      transition: transform 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
+      display: none; z-index: 500; pointer-events: none;
+    }
+    .select-cursor.hit {
+      background: var(--primary);
+      transform: translate(-50%, -50%) scale(1.25);
+      box-shadow: 0 6px 20px rgba(0, 210, 255, 0.25);
+    }
 
-    /* --- DATA PANEL (Bottom Floating on Mobile) --- */
+    /* --- DATA PANEL (Bottom Sheet style for Mobile) --- */
     #data-panel {
-      position: absolute; bottom: 20px; right: 20px; left: 20px; z-index: 100;
-      background: rgba(20, 20, 20, 0.9); border: 1px solid #444;
-      border-radius: 8px; padding: 16px; 
-      color: #ddd; font-size: 13px; max-height: 30vh;
-      overflow-y: auto; font-family: "Google Sans Flex", sans-serif;
-      display: none; /* Hidden until selection */
-      backdrop-filter: blur(5px);
+      position: absolute; bottom: 0; left: 0; width: 100%;
+      max-height: 40vh; /* Takes up to 40% of screen height */
+      background: var(--bg-dark);
+      border-top-left-radius: 20px; border-top-right-radius: 20px;
+      backdrop-filter: blur(15px); border-top: 1px solid var(--border);
+      display: flex; flex-direction: column;
+      transform: translateY(110%); /* Hidden by default */
+      transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+      z-index: 300;
+      box-shadow: 0 -4px 20px rgba(0,0,0,0.4);
     }
-    #data-panel.active { display: block; }
-    #data-panel h3 { margin: 0 0 8px 0; color: #fff; }
-    .section { margin-bottom: 8px; border-bottom: 1px solid #444; padding-bottom: 4px; }
-    .label { color: #888; font-size: 10px; text-transform: uppercase; }
-    .value { color: #fff; }
+    #data-panel.active { transform: translateY(0); }
 
-    /* Close button for data panel */
-    #close-data { position: absolute; top: 10px; right: 10px; cursor: pointer; color: #aaa; }
+    /* Drag Handle (Visual cue) */
+    .panel-handle {
+      width: 40px; height: 4px; background: #555; border-radius: 2px;
+      margin: 12px auto; flex-shrink: 0;
+    }
     
-    /* Loading Indicator */
-    #ar-loading {
-      position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-      color: white; font-weight: bold; background: rgba(0,0,0,0.7); padding: 20px; border-radius: 10px;
-      display: none; pointer-events: none; z-index: 999;
+    .panel-header {
+      padding: 0 20px 10px 20px; display: flex; justify-content: space-between; align-items: center;
+      border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    .panel-title { font-size: 18px; font-weight: 600; color: white; margin: 0; }
+    .panel-close { background: none; border: none; color: var(--text-dim); font-size: 24px; padding: 10px; cursor: pointer; }
+
+    /* Scrollable Content Area */
+    .panel-content {
+      padding: 20px; overflow-y: auto; -webkit-overflow-scrolling: touch;
+    }
+    
+    .data-row { margin-bottom: 12px; }
+    .data-label { font-size: 11px; color: var(--text-dim); text-transform: uppercase; margin-bottom: 4px; letter-spacing: 0.5px; }
+    .data-value { font-size: 14px; color: white; line-height: 1.4; }
+
+    /* --- START SCREEN --- */
+    #start-screen {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      background: radial-gradient(circle at center, #222, #000);
+      z-index: 1000;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      text-align: center; color: white;
+    }
+    #start-screen h1 { margin-bottom: 10px; font-size: 24px; }
+    #start-screen p { color: #aaa; margin-bottom: 30px; font-size: 14px; max-width: 80%; line-height: 1.5; }
+    /* start button styling */
+    #start-ar-btn {
+      margin-top: 24px;
+      padding: 12px 36px;
+      font-size: 18px;
+      font-weight: 600;
+      background: var(--primary);
+      color: black;
+      border: none;
+      border-radius: 24px;
+      cursor: pointer;
+    }
+
+    /* Loading Overlay (shows while models are loading) */
+    #loading-overlay {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 2000;
+      background: rgba(0,0,0,0.65);
+      color: white;
+      flex-direction: column;
+      gap: 12px;
+      padding: 20px;
+      text-align: center;
+    }
+    #loading-overlay.hidden { display: none; }
+    #loading-overlay .loading-text { font-size: 15px; color: #e6eef6; opacity: 0.95; }
+    #loading-overlay .spinner {
+      width: 48px; height: 48px; border-radius: 50%;
+      border: 4px solid rgba(255,255,255,0.12);
+      border-top-color: var(--primary);
+      animation: spin 1s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    
+
+    /* --- DESKTOP / LANDSCAPE TWEAKS --- */
+    @media (min-width: 768px) {
+      /* Sidebar pushes content or overlays nicely */
+      #sidebar { width: 320px; border-right: 1px solid var(--border); }
+      
+      /* Data Panel becomes floating card on right */
+      #data-panel {
+        bottom: 20px; left: auto; right: 20px; width: 320px;
+        border-radius: 16px; border: 1px solid var(--border);
+        transform: translateX(120%); /* Slide out to right */
+        max-height: 60vh;
+      }
+      #data-panel.active { transform: translateX(0); }
+      .panel-handle { display: none; }
     }
   </style>
 
@@ -95,8 +369,7 @@
     {
       "imports": {
         "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
-        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/",
-        "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
       }
     }
   </script>
@@ -105,119 +378,199 @@
 
   <!-- START SCREEN -->
   <div id="start-screen">
-    <h1>AR Marker Mode</h1>
-    <p>Point camera at the target image</p>
-    <button id="start-btn">Start Camera</button>
-    <a href="model-view.html" style="color:#aaa; margin-top:20px;">Back to Inspector</a>
+    <h1>AR Inspection</h1>
+    <p>Scan the marker to view the phasing timeline and inspect BIM data directly on site.</p>
+    <button id="start-ar-btn" class="start-btn">START AR</button>
+    <a href="model-view.html" style="color: #ffffff; font-size: 12px; margin-top: 30px; text-decoration: none;">Exit to Inspector</a>
   </div>
 
-  <div id="ar-loading">Scanning for Marker...</div>
+  <!-- UI OVERLAY -->
+  <div id="dom-overlay">
+    
+    <!-- TOP BAR -->
+    <div id="top-bar">
+      <div style="display:flex; gap:8px; align-items:center;">
+        <button id="sidebar-toggle" class="top-btn">☰</button>
+        <button id="settings-toggle" class="top-btn">⚙</button>
+      </div>
+      <a id="back-btn" class="top-btn" href="model-view.html">
+        <span style="font-size:18px">←</span>
+      </a>
+    </div>
 
-  <!-- UI TOGGLE -->
-  <button id="sidebar-toggle">☰ Hierarchy</button>
+    <!-- Phase Notice (temporary top-centered floating notification) -->
+    <div id="phase-notice" class="phase-notice" aria-hidden="true"></div>
 
-  <!-- SIDEBAR -->
-  <div id="sidebar">
-    <div class="header">
-      <div class="header-title">Project Hierarchy</div>
-      <div id="phase-controls">
-        <label for="phase-slider" style="font-size:12px; color:#ccc;">Phase:</label>
-        <input id="phase-slider" type="range" min="0" max="0" value="0" style="width:100px;">
-        <span id="phase-label" style="font-size:12px; color:#ccc; min-width:30px; text-align:right;"></span>
+    <!-- HIERARCHY SIDEBAR -->
+    <div id="sidebar">
+      <div class="sidebar-header">
+        <span class="sidebar-title">Project Hierarchy</span>
+        <button id="sidebar-close">✕</button>
+      </div>
+      
+
+
+      <div id="tree-container">
+        <div style="padding:20px; color:#666; font-size:13px; text-align:center;">Loading Project...</div>
       </div>
     </div>
-    <div id="tree-container">Loading...</div>
-  </div>
 
-  <!-- DATA PANEL -->
-  <div id="data-panel">
-    <div id="close-data">✕</div>
-    <div id="data-content">Select an object...</div>
+    <!-- Settings Panel -->
+    <div id="settings-panel" class="settings-panel" aria-hidden="true">
+      <div class="settings-header"><strong>Settings</strong></div>
+      <div class="settings-row">
+        <div class="setting-label">Selection Outline</div>
+        <label><input type="radio" name="outline-mode" value="edges"> Wireframe</label>
+        <label><input type="radio" name="outline-mode" value="box"> Box</label>
+        <label><input type="radio" name="outline-mode" value="none"> None</label>
+      </div>
+      <div class="settings-row">
+        <div class="setting-label">Hitbox Size</div>
+        <label><input type="radio" name="hitbox-size" value="normal"> Normal</label>
+        <label><input type="radio" name="hitbox-size" value="large"> Larger</label>
+      </div>
+      <div class="settings-row">
+        <div class="setting-label">Display</div>
+        <label><input type="checkbox" id="setting-fullscreen-gesture"> Enter fullscreen on gesture</label>
+      </div>
+    </div>
+
+    <!-- DATA PANEL (Bottom Sheet) -->
+    <div id="data-panel">
+      <div class="panel-handle"></div>
+      <div class="panel-header">
+        <h3 class="panel-title" id="data-title">Selection</h3>
+        <button class="panel-close" id="close-data">✕</button>
+      </div>
+      <div class="panel-content" id="data-content">
+        <!-- Content injected here -->
+      </div>
+    </div>
+
+    <!-- BOTTOM CONTROLS -->
+    <div id="bottom-controls">
+
+
+      <!-- Compact Controls Row: Scale + Phase side-by-side -->
+      <div class="controls-row">
+        <div class="scale-container">
+          <span class="scale-label">Scale</span>
+          <input id="scale-slider" type="range" min="0.01" max="0.2" step="0.01" value="0.05">
+        </div>
+
+        <div class="phase-pill" aria-label="construction-phase">
+          <span class="phase-title">Phase</span>
+          <input id="phase-slider" type="range" min="0" max="0" value="0">
+          <span id="phase-label" class="phase-count">0/0</span>
+        </div>
+      </div>
+
+    </div>
+
+    <div id="select-cursor" class="select-cursor" aria-hidden="true"></div>
+
+    <div id="loading-overlay" class="hidden" aria-hidden="true">
+      <div class="spinner" role="status" aria-hidden="true"></div>
+      <div class="loading-text">Loading models…</div>
+    </div>
   </div>
 
   <script type="module">
     import * as THREE from 'three';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-    import { MindARThree } from 'mindar-image-three';
+    import { MindARThree } from 'https://cdn.jsdelivr.net/npm/mind-ar@1.1.5/dist/mindar-image-three.prod.js';
     import { getModelID, getPaths, loadProjectManifest } from '../js/project-loader.js';
 
-    // 1. Get Project Data
+    // --- 1. CONFIG & INIT ---
     const modelID = getModelID();
     if (!modelID) { alert("No Model ID!"); window.location.href = "../index.html"; }
+    
+    // Update Back Link
+    document.getElementById('back-btn').href = `model-view.html?id=${modelID}`;
+
     const paths = getPaths(modelID);
 
-    // --- UI TOGGLES ---
-    const sidebar = document.getElementById('sidebar');
-    document.getElementById('sidebar-toggle').addEventListener('click', () => {
-        sidebar.classList.toggle('open');
-    });
-    
-    const dataPanel = document.getElementById('data-panel');
-    const dataContent = document.getElementById('data-content');
-    document.getElementById('close-data').addEventListener('click', () => {
-        dataPanel.classList.remove('active');
-        clearOutline();
-    });
+    // Three.js Core + MindAR initialization
+    const container = document.createElement('div');
+    document.body.appendChild(container);
 
-    // --- AR SETUP ---
-    // Note: You must provide a valid .mind file path here. 
-    // Using a placeholder or assuming a standard name like 'targets.mind' in the project folder.
-    // For now, let's assume specific marker path or generic.
-    const mindARThree = new MindARThree({
-      container: document.body,
-      imageTargetSrc: `../assets/targets.mind`, // <--- MAKE SURE THIS EXISTS
-      maxTrack: 1, // Track 1 image
+    const mindarThree = new MindARThree({
+        container,
+        imageTargetSrc: `${paths.base}/marker.mind`,
+        maxTrack: 1
     });
+    const { renderer, scene, camera } = mindarThree;
 
-    const { renderer, scene, camera } = mindARThree;
-    
-    // Light
+    // Lights
     const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 3);
+    light.position.set(0.5, 1, 0.25);
     scene.add(light);
-    const dirLight = new THREE.DirectionalLight(0xffffff, 2);
-    dirLight.position.set(5, 10, 7.5);
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+    dirLight.position.set(0, 10, 0); // Overhead light
     scene.add(dirLight);
 
-    // Anchor
-    const anchor = mindARThree.addAnchor(0); // Anchor to the first image in the .mind file
+    // start screen handling
+    const startScreen = document.getElementById('start-screen');
+    async function startAR() {
+      try {
+        await mindarThree.start();
+        console.log('MindAR started');
+      } catch(e) {
+        console.error('AR start failed', e);
+        alert('AR start failed: ' + (e.message || e));
+      }
+      if (startScreen) startScreen.style.display = 'none';
+    }
+    const startBtn = document.getElementById('start-ar-btn');
+    if (startBtn) startBtn.addEventListener('click', startAR);
 
-    // 2. LOGIC VARIABLES
+    // try to start if user taps anywhere on the AR view (helps on some devices)
+    container.addEventListener('click', () => {
+      if (startScreen && startScreen.style.display !== 'none') startAR();
+    });
+
+
+    // --- 3. SCENE OBJECTS ---
+    const modelGroup = new THREE.Group();
+    // will be attached to anchor later 
+
+    // State Variables
+    let modelScale = 0.05;
+
+    // Mode switcher removed for marker-only experience
+    
     const loader = new GLTFLoader();
     let phaseEntries = [];
     let phaseManifestData = null;
     let dataMapData = null;
-    
-    const visibilityState = new WeakMap();
-    const domMap = new Map(); 
-    const outlineObjects = new Set();
-    
+
     // Raycasting
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
+    let outlineObject = null; // Store current outline
 
-    // 3. START BUTTON LOGIC
-    document.getElementById('start-btn').addEventListener('click', async () => {
-        document.getElementById('start-screen').style.display = 'none';
-        document.getElementById('ar-loading').style.display = 'block';
-        
-        await mindARThree.start();
-        
-        document.getElementById('ar-loading').style.display = 'none';
-        renderer.setAnimationLoop(() => {
-          renderer.render(scene, camera);
-        });
-    });
-
-    // 4. LOAD PROJECT (Reused logic from model-view.html)
+    // --- 4. LOAD CONTENT ---
     function loadGLB(url) {
       return new Promise((resolve, reject) => {
         loader.load(url, gltf => resolve(gltf), undefined, err => reject(err));
       });
     }
 
+    // Show overlay while manifest + models are being fetched
+    const _loadingOverlayEl = document.getElementById('loading-overlay');
+    function setLoadingOverlay(show, text) {
+        if (!_loadingOverlayEl) return;
+        _loadingOverlayEl.classList.toggle('hidden', !show);
+        if (text !== undefined) {
+            const t = _loadingOverlayEl.querySelector('.loading-text');
+            if (t) t.textContent = String(text);
+        }
+    }
+
+    setLoadingOverlay(true, 'Loading project manifest...');
     loadProjectManifest(modelID).then(async (manifest) => {
-      if (!manifest) return;
-      document.getElementById('tree-container').innerHTML = '';
+      if (!manifest) { setLoadingOverlay(false); return; }
+      document.getElementById('tree-container').innerHTML = ''; // Clear loading
       phaseManifestData = manifest;
 
       // Load Data Map
@@ -228,12 +581,11 @@
 
       // Sort phases
       const sortedPhases = Object.keys(manifest).sort((a, b) => {
-        const numA = parseInt(a.match(/\d+/)[0]);
-        const numB = parseInt(b.match(/\d+/)[0]);
+        const numA = parseInt(a.match(/\d+/)[0] || 0);
+        const numB = parseInt(b.match(/\d+/)[0] || 0);
         return numA - numB;
       });
 
-      // Load Models
       phaseEntries = [];
       for (let i = 0; i < sortedPhases.length; i++) {
         const phaseName = sortedPhases[i];
@@ -243,153 +595,610 @@
           const gltf = await loadGLB(url);
           const model = gltf.scene;
           
-          // AR SCALING: Models are usually big (meters). Markers are small.
-          // Scale down to fit on a typical printed paper (e.g., 0.1 or 0.05)
-          model.scale.set(0.05, 0.05, 0.05); 
-          
-          anchor.group.add(model); // Add to Anchor, not Scene
+          model.scale.set(modelScale, modelScale, modelScale);
+          modelGroup.add(model);
           
           phaseEntries.push({ name: phaseName, model });
           
-          // Build Hierarchy Tree (Same logic)
-          const phaseDiv = addToSidebar(phaseName, model, 0, null);
-          
-          const build = (obj, indent, parentUuid) => {
-            obj.children.forEach(child => {
-              addToSidebar(child.name || 'Unnamed', child, indent, parentUuid);
-              build(child, indent + 1, child.uuid);
-            });
-          };
-          build(model, 1, model.uuid);
+          // Add to Hierarchy UI
+          addHierarchyItem(phaseName, model);
 
         } catch (e) { console.error("Load failed", url, e); }
       }
-
-      // Setup Slider
+      
       setupSlider();
+      // All done loading models
+      setLoadingOverlay(false);
+    }).catch((err) => {
+      console.error('Project load failed', err);
+      setLoadingOverlay(false);
     });
 
-    // 5. HELPER FUNCTIONS (Tree, Selection, Phasing)
+    // --- 5. UI LOGIC ---
+    
+    // Sidebar Toggles
+    const sidebar = document.getElementById('sidebar');
+    const toggleSidebar = () => sidebar.classList.toggle('open');
+    document.getElementById('sidebar-toggle').addEventListener('click', toggleSidebar);
+    document.getElementById('sidebar-close').addEventListener('click', () => sidebar.classList.remove('open'));
 
+    // Settings UI
+    const settingsToggle = document.getElementById('settings-toggle');
+    const settingsPanel = document.getElementById('settings-panel');
+
+    // Default settings (persist to localStorage)
+    let selectionOutlineMode = localStorage.getItem('outlineMode') || 'edges'; // 'edges' | 'box' | 'none'
+    let hitboxSize = localStorage.getItem('hitboxSize') || 'normal'; // 'normal' | 'large'
+    let hitboxFactor = (hitboxSize === 'large') ? 1.8 : 1.0;
+
+    // Track currently selected mesh so we can reapply outline when settings change
+    let selectedMesh = null;
+
+    // Track last phase notice to prevent repeated popups on input events
+    let lastPhaseNoticeIdx = -1;
+
+    // Initialize UI state for settings
+    const outlineInputs = document.querySelectorAll('input[name="outline-mode"]');
+    const hitboxInputs = document.querySelectorAll('input[name="hitbox-size"]');
+    outlineInputs.forEach(i => { i.checked = (i.value === selectionOutlineMode); i.addEventListener('change', (e) => {
+        if (!e.target.checked) return;
+        selectionOutlineMode = e.target.value;
+        localStorage.setItem('outlineMode', selectionOutlineMode);
+        // Reapply outline to the selected mesh if any and clear hover outlines so visual updates are immediate
+        if (selectedMesh) {
+            clearOutline();
+            addOutline(selectedMesh);
+        }
+        clearHover();
+    }); });
+    hitboxInputs.forEach(i => { i.checked = (i.value === hitboxSize); i.addEventListener('change', (e) => {
+        if (!e.target.checked) return;
+        hitboxSize = e.target.value;
+        hitboxFactor = (hitboxSize === 'large') ? 1.8 : 1.0;
+        localStorage.setItem('hitboxSize', hitboxSize);
+    }); });
+
+    // Fullscreen on gesture setting (persisted)
+    let fullscreenOnGesture = localStorage.getItem('fullscreenOnGesture') === '1';
+    const fsCheckbox = document.getElementById('setting-fullscreen-gesture');
+    if (fsCheckbox) {
+        fsCheckbox.checked = fullscreenOnGesture;
+        fsCheckbox.addEventListener('change', (e) => {
+            fullscreenOnGesture = !!e.target.checked;
+            localStorage.setItem('fullscreenOnGesture', fullscreenOnGesture ? '1' : '0');
+        });
+    }
+
+    // Helper to attempt fullscreen using the user gesture (safe vendor fallbacks)
+    function tryEnterFullscreen() {
+        if (!fullscreenOnGesture) return;
+        if (document.fullscreenElement) return;
+        const el = document.documentElement;
+        const request = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+        if (!request) return;
+        try {
+            const p = request.call(el);
+            if (p && typeof p.then === 'function') p.catch(err => console.warn('Fullscreen request failed:', err));
+        } catch (err) {
+            // Some older WebKit implementations require direct call without promise
+            try { request.call(el); } catch (e) { console.warn('Fullscreen request failed:', e); }
+        }
+    }
+
+    if (settingsToggle) {
+      settingsToggle.addEventListener('click', (e) => {
+          if (settingsPanel) settingsPanel.classList.toggle('active');
+          e.stopPropagation();
+      });
+    }
+    // Close settings when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('#settings-panel') && !e.target.closest('#settings-toggle')) {
+            if (settingsPanel) settingsPanel.classList.remove('active');
+        }
+    });
+
+    // Data Panel
+    const dataPanel = document.getElementById('data-panel');
+    const closeData = () => {
+        dataPanel.classList.remove('active');
+        clearOutline();
+        selectedMesh = null;
+    };
+    document.getElementById('close-data').addEventListener('click', closeData);
+
+    // Mode switcher UI has been removed for marker mode (no `currentMode` variable).
+    // All interactions now behave as selection by default.
+
+    // Scale Slider
+    const scaleSlider = document.getElementById('scale-slider');
+    scaleSlider.addEventListener('input', (e) => {
+        modelScale = parseFloat(e.target.value);
+        modelGroup.children.forEach(child => {
+            child.scale.set(modelScale, modelScale, modelScale);
+        });
+    });
+
+    // Phasing Slider
     function setupSlider() {
       const slider = document.getElementById('phase-slider');
       const label = document.getElementById('phase-label');
       slider.max = Math.max(0, phaseEntries.length - 1);
       slider.value = phaseEntries.length - 1;
-      label.textContent = phaseEntries.length;
+      label.textContent = `${phaseEntries.length}/${phaseEntries.length}`;
 
-      const apply = (idx) => {
-        phaseEntries.forEach((entry, i) => {
-            const visible = i <= idx;
-            entry.model.visible = visible;
-            // Update UI Icons
-            const updateDom = (obj) => {
-                const refs = domMap.get(obj.uuid);
-                if(refs) {
-                    refs.visBtn.classList.toggle('visible', visible);
-                    refs.visBtn.classList.toggle('hidden', !visible);
-                    if(visible) refs.div.classList.remove('hidden'); else refs.div.classList.add('hidden');
-                }
-                obj.children.forEach(c => updateDom(c));
-            }
-            updateDom(entry.model);
-        });
-        label.textContent = `${idx + 1}/${phaseEntries.length}`;
-      };
-      
-      apply(parseInt(slider.value));
-      slider.addEventListener('input', (e) => apply(parseInt(e.target.value)));
+      slider.addEventListener('input', (e) => {
+          const idx = parseInt(e.target.value);
+          phaseEntries.forEach((entry, i) => {
+              entry.model.visible = i <= idx;
+          });
+          label.textContent = `${idx + 1}/${phaseEntries.length}`;
+          // Only show notice when the selected phase index actually changes
+          if (idx !== lastPhaseNoticeIdx) {
+              showPhaseNotice(idx);
+              lastPhaseNoticeIdx = idx;
+          }
+      });
+
+      // Also listen to change for final value (in case input events are noisy)
+      slider.addEventListener('change', (e) => {
+          const idx = parseInt(e.target.value);
+          if (idx !== lastPhaseNoticeIdx) {
+              showPhaseNotice(idx);
+              lastPhaseNoticeIdx = idx;
+          }
+      });
+      // Initial Apply
+      phaseEntries.forEach((entry, i) => entry.model.visible = true);
     }
 
-    function addToSidebar(name, object, indent, parentUuid) {
+    // Hierarchy Builder
+    function addHierarchyItem(name, object) {
+        const container = document.getElementById('tree-container');
+        
+        // Parent Item (Phase)
         const div = document.createElement('div');
         div.className = 'tree-item';
-        div.style.paddingLeft = (15 + indent * 10) + 'px';
-        div.dataset.uuid = object.uuid;
-        
-        visibilityState.set(object, true);
-        domMap.set(object.uuid, { div, visBtn: document.createElement('span') }); // Simplified for brevity
+        div.innerHTML = `<span class="tree-icon">📁</span> ${name}`;
+        div.addEventListener('click', () => { selectObject(object, name); sidebar.classList.remove('open'); // Close sidebar on selection
+            // Find phase index and show notice
+            const idx = phaseEntries.findIndex(p => p.name === name);
+            if (idx >= 0) showPhaseNotice(idx, true);
+        }); // Select entire phase group
+        container.appendChild(div);
 
-        // Simple Label
-        div.innerHTML = `<span>${object.isMesh ? '🔷' : '📁'} ${name}</span>`;
-        
-        // Click to Select
-        div.addEventListener('click', (e) => {
-            e.stopPropagation();
-            selectObject(object);
-        });
-
-        document.getElementById('tree-container').appendChild(div);
-        return div;
-    }
-
-    function selectObject(object) {
-        // Highlight logic
-        clearOutline();
-        if(object.isMesh) addOutline(object);
-        
-        // Show Data Panel
-        dataPanel.classList.add('active');
-        
-        // Populate Data
-        let html = `<h3>${object.name}</h3>`;
-        
-        // Lookup Data in Map
-        if (dataMapData && dataMapData[object.name]) {
-            html += `<div class="section"><div class="label">BIM Data</div><div class="value">`;
-            for (const [key, val] of Object.entries(dataMapData[object.name])) {
-                html += `${key}: ${val}<br>`;
+        // Children (Meshes) - Flattened slightly for mobile readable
+        object.traverse((child) => {
+            if (child.isMesh) {
+                const childDiv = document.createElement('div');
+                childDiv.className = 'tree-item';
+                childDiv.style.paddingLeft = '40px'; // Indent
+                // Truncate long names
+                const shortName = child.name.length > 25 ? child.name.substring(0, 22) + '...' : child.name;
+                childDiv.innerHTML = `<span class="tree-icon">🔷</span> ${shortName}`;
+                
+                childDiv.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    selectObject(child, child.name);
+                    sidebar.classList.remove('open'); // Close sidebar on selection for better mobile UX
+                });
+                container.appendChild(childDiv);
             }
-            html += `</div></div>`;
-        } else {
-            html += `<div style="color:#888;">No metadata found.</div>`;
-        }
-        
-        dataContent.innerHTML = html;
-    }
-
-    // --- OUTLINE LOGIC (Reused) ---
-    function addOutline(mesh) {
-        outlineObjects.add(mesh);
-        mesh.userData.originalMaterial = mesh.material;
-        const edges = new THREE.EdgesGeometry(mesh.geometry, 15);
-        const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x0099ff, depthTest: false }));
-        line.renderOrder = 999;
-        mesh.add(line);
-        mesh.userData.outlineEdges = line;
-    }
-
-    function clearOutline() {
-        outlineObjects.forEach(obj => {
-            if(obj.userData.outlineEdges) obj.remove(obj.userData.outlineEdges);
         });
-        outlineObjects.clear();
     }
 
-    // --- TOUCH RAYCASTING ---
-    // MindAR works full screen. We treat clicks on the screen (that aren't on UI) as selection attempts.
-    document.addEventListener('pointerdown', (event) => {
-        // If clicking UI, ignore
-        if (event.target.closest('#sidebar') || event.target.closest('#data-panel') || event.target.closest('#sidebar-toggle')) return;
 
-        // Coordinates for MindAR/ThreeJS are -1 to 1
+    // --- 6. INTERACTION LOGIC ---
+
+    const controller = renderer.xr.getController(0);
+    controller.addEventListener('select', onSelect);
+    scene.add(controller);
+
+    function onSelect() {
+        // Always perform raycast selection from controller
+        const tempMatrix = new THREE.Matrix4();
+        tempMatrix.identity().extractRotation(controller.matrixWorld);
+        raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+        raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
+        const intersects = raycaster.intersectObjects(modelGroup.children, true);
+        let picked = null;
+        if (intersects.length > 0) {
+            const hit = intersects.find(x => x.object.isMesh);
+            if (hit) picked = hit.object;
+        }
+        if (!picked && hitboxFactor > 1.0) {
+            picked = broadRaycastPick(raycaster, hitboxFactor);
+        }
+
+        if (picked) {
+            selectObject(picked, picked.name);
+            sidebar.classList.remove('open');
+        } else {
+            closeData();
+        }
+    }
+
+    // Touch Listener for Selection (DOM Overlay)
+    container.addEventListener('click', (event) => {
+        // Ignore clicks on UI
+        if (event.target.closest('#sidebar') || 
+            event.target.closest('#data-panel') || 
+            event.target.closest('#bottom-controls') || 
+            event.target.closest('#top-bar')) return;
+
+        // Normalized Device Coords
         mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
         mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
 
         raycaster.setFromCamera(mouse, camera);
         
-        // Raycast against the anchor group children
-        const intersects = raycaster.intersectObjects(anchor.group.children, true);
-        
+        // Intersect
+        const intersects = raycaster.intersectObjects(modelGroup.children, true);
+        let picked = null;
         if (intersects.length > 0) {
-            // Find the first mesh
             const hit = intersects.find(x => x.object.isMesh);
-            if(hit) selectObject(hit.object);
-        } else {
-            // Deselect if clicking empty space
-            dataPanel.classList.remove('active');
-            clearOutline();
+            if (hit) picked = hit.object;
         }
+        // Broad-phase hit using bounding spheres when normal intersects fail or when "larger" hitbox is enabled
+        if (!picked && hitboxFactor > 1.0) {
+            picked = broadRaycastPick(raycaster, hitboxFactor);
+        }
+
+        if (picked) {
+            selectObject(picked, picked.name);
+            sidebar.classList.remove('open');
+        } else {
+            closeData();
+        }
+    });
+
+    // Hover / cursor feedback for select mode
+    let hoveredObject = null;
+    let hoverOutline = null;
+
+    function clearHover() {
+        if (hoverOutline) {
+            if (hoverOutline.parent) hoverOutline.parent.remove(hoverOutline);
+            hoverOutline = null;
+        }
+        hoveredObject = null;
+        const cursorEl = document.getElementById('select-cursor');
+        if (cursorEl) cursorEl.classList.remove('hit');
+    }
+
+    container.addEventListener('pointermove', (event) => {
+        // Visual cursor removed — keep hover detection only
+        // Hide hover when pointer is over UI
+        if (event.target.closest('#sidebar') || event.target.closest('#data-panel') || event.target.closest('#bottom-controls') || event.target.closest('#top-bar')) {
+            clearHover();
+            return;
+        }
+
+        // Raycast to detect hover
+        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObjects(modelGroup.children, true);
+
+        if (intersects.length > 0) {
+            const hit = intersects.find(x => x.object.isMesh);
+            if (hit) {
+                if (hoveredObject !== hit.object) {
+                    clearHover();
+                    hoveredObject = hit.object;
+                    // Create thin edge outline (matches model-view/marker visuals)
+                    if (hoveredObject.geometry) {
+                        if (selectionOutlineMode === 'box') {
+                            const box = new THREE.BoxHelper(hoveredObject, 0x0099ff);
+                            box.material.depthTest = false;
+                            box.renderOrder = 998;
+                            scene.add(box);
+                            hoverOutline = box;
+                        } else if (selectionOutlineMode === 'edges') {
+                            const edges = new THREE.EdgesGeometry(hoveredObject.geometry, 15);
+                            const line = new THREE.LineSegments(
+                                edges,
+                                new THREE.LineBasicMaterial({ color: 0x0099ff, depthTest: false })
+                            );
+                            line.renderOrder = 998;
+                            hoveredObject.add(line);
+                            hoverOutline = line;
+                        } else {
+                            hoverOutline = null;
+                        }
+                    }
+                }
+                // Hit state (no visual cursor)
+                return;
+            }
+        }
+        // No hit
+        clearHover();
+    });
+
+    // Ensure hover cleared when leaving select mode or clicking UI
+    document.addEventListener('pointerdown', (e) => {
+        if (e.target.closest('#sidebar') || e.target.closest('#data-panel') || e.target.closest('#bottom-controls') || e.target.closest('#top-bar')) {
+            clearHover();
+        }
+    });
+
+    // Phase notice helper: show top floating notice for 3 seconds
+    // Helper to recursively find keys matching pattern inside an object
+    function findKeyRecursive(obj, pattern) {
+        if (!obj || typeof obj !== 'object') return null;
+        for (const key of Object.keys(obj)) {
+            try {
+                if (pattern.test(key)) return obj[key];
+            } catch (e) {}
+            const val = obj[key];
+            if (val && typeof val === 'object') {
+                const found = findKeyRecursive(val, pattern);
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    function getPhaseDate(idx) {
+        if (!phaseEntries || !phaseEntries[idx]) return null;
+        const name = phaseEntries[idx].name;
+        if (!phaseManifestData) return null;
+        const data = phaseManifestData[name];
+        if (data == null) return null;
+        // If data is a primitive string/number (common manifest format like "Phase_0": "10/11/2025 ..."), use it directly
+        if (typeof data === 'string' || typeof data === 'number') {
+            try {
+                const d = new Date(data);
+                if (!isNaN(d)) return d.toLocaleString();
+            } catch (e) {}
+            return String(data);
+        }
+        // Try common date keys on object entries
+        const candidates = ['date','phaseDate','phase_date','startDate','start_date','start','timestamp'];
+        for (const key of candidates) {
+            let val = data[key];
+            if (!val && data.metadata) val = data.metadata[key];
+            if (val) {
+                // Format timestamps or ISO date strings
+                try {
+                    const d = new Date(val);
+                    if (!isNaN(d)) return d.toLocaleString();
+                } catch (e) { return String(val); }
+                return String(val);
+            }
+        }
+        return null;
+    }
+
+    // Tries to extract the TimeLiner / Task Start planned value from phase manifest
+    function getPhaseTimeLinerValue(idx) {
+        if (!phaseEntries || !phaseEntries[idx]) return null;
+        const name = phaseEntries[idx].name;
+        if (!phaseManifestData) return null;
+        const data = phaseManifestData[name];
+        if (data == null) return null;
+
+        // If data is a primitive string/number, assume it's the phase date/time and return it
+        if (typeof data === 'string' || typeof data === 'number') return data;
+
+        // First try exact key name (common variant) - user-specified key
+        const exactKey = Object.keys(data).find(k => k.toLowerCase().includes('timeliner') && k.toLowerCase().includes('task start'));
+        if (exactKey) return data[exactKey];
+
+        // Try recursive search for keys that mention TimeLiner and Task Start / Planned
+        const pattern = /timeliner.*task.*start|task.*start.*timeliner|contained in task start/i;
+        const found = findKeyRecursive(data, pattern);
+        if (found != null) return found;
+
+        // As a fallback, search for keys that contain 'timeliner' anywhere
+        const tlKey = Object.keys(data).find(k => k.toLowerCase().includes('timeliner'));
+        if (tlKey) return data[tlKey];
+
+        // Look inside metadata if present
+        if (data.metadata) {
+            const metaFound = findKeyRecursive(data.metadata, pattern);
+            if (metaFound != null) return metaFound;
+        }
+        return null;
+    }
+
+    function showPhaseNotice(idx, force = false) {
+        const notice = document.getElementById('phase-notice');
+        if (!notice) return;
+        if (!force && idx === lastPhaseNoticeIdx) return; // don't repeat unless forced
+
+        const name = phaseEntries[idx] ? phaseEntries[idx].name : `Phase ${idx+1}`;
+        // Build a nice label for phase number: extract digits if present, else index
+        let phaseLabel = null;
+        const m = (phaseEntries[idx] && phaseEntries[idx].name) ? phaseEntries[idx].name.match(/(\d+)/) : null;
+        if (m) phaseLabel = `Phase ${m[1]}`; else phaseLabel = `Phase ${idx+1}`;
+
+        // Prefer the TimeLiner Task Start planned value per user request
+        const timeVal = getPhaseTimeLinerValue(idx);
+        let displayDate = null;
+        if (timeVal) {
+            // Format if looks like a date
+            try {
+                const d = new Date(timeVal);
+                if (!isNaN(d)) displayDate = d.toLocaleString(); else displayDate = String(timeVal);
+            } catch (e) { displayDate = String(timeVal); }
+        } else {
+            // fallback to general phase date
+            displayDate = getPhaseDate(idx);
+        }
+
+        notice.innerHTML = `<div class="phase-name">${phaseLabel}</div><div class="phase-value">${displayDate || ''}</div>`;
+        notice.classList.remove('hiding');
+        notice.classList.add('show');
+
+        clearTimeout(notice._hideTimer);
+        notice._hideTimer = setTimeout(() => {
+            // Start hiding transition
+            notice.classList.remove('show');
+            notice.classList.add('hiding');
+            // Remove hiding class after transition (300ms)
+            clearTimeout(notice._clearTimer);
+            notice._clearTimer = setTimeout(() => {
+                notice.classList.remove('hiding');
+                // Optionally clear content after hide
+                // notice.innerHTML = '';
+            }, 350);
+        }, 3000);
+
+        lastPhaseNoticeIdx = idx;
+    }
+
+    // Broad-phase pick using bounding spheres (useful for small meshes)
+    function broadRaycastPick(raycaster, factor = 1.0) {
+        let best = null;
+        let bestT = Infinity;
+        const tmpV = new THREE.Vector3();
+        modelGroup.children.forEach(child => {
+            child.traverse((mesh) => {
+                if (!mesh.isMesh || !mesh.geometry) return;
+                if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
+                // Bounding sphere in local space
+                tmpV.copy(mesh.geometry.boundingSphere.center);
+                // Convert to world
+                mesh.localToWorld(tmpV);
+                const dist = raycaster.ray.distanceToPoint(tmpV);
+                const maxScale = Math.max(mesh.scale.x, mesh.scale.y, mesh.scale.z);
+                const radius = mesh.geometry.boundingSphere.radius * maxScale;
+                if (dist <= radius * factor) {
+                    // Measure t along ray to pick nearest
+                    const originToCenter = new THREE.Vector3().subVectors(tmpV, raycaster.ray.origin);
+                    const t = originToCenter.dot(raycaster.ray.direction);
+                    if (t >= 0 && t < bestT) {
+                        bestT = t;
+                        best = mesh;
+                    }
+                }
+            });
+        });
+        return best;
+    }
+
+    function findPhaseIndexByObject(object) {
+        if (!phaseEntries) return -1;
+        for (let i = 0; i < phaseEntries.length; i++) {
+            const root = phaseEntries[i].model;
+            let found = false;
+            root.traverse((child) => { if (child === object) found = true; });
+            if (found) return i;
+        }
+        return -1;
+    }
+
+    function selectObject(object, name) {
+        sidebar.classList.remove('open');
+        clearOutline();
+        selectedMesh = object;
+        if (object.isMesh) addOutline(object);
+
+        // Show phase notice for the phase the object belongs to (if known)
+        const pidx = findPhaseIndexByObject(object);
+        if (pidx >= 0) showPhaseNotice(pidx, true);
+
+        const title = document.getElementById('data-title');
+        const content = document.getElementById('data-content');
+        
+        title.textContent = name || object.name;
+        dataPanel.classList.add('active');
+
+        let html = '';
+        
+        // 1. Mesh Info
+        html += `<div class="data-row">
+            <div class="data-label">Type</div>
+            <div class="data-value">${object.isMesh ? 'Static Mesh' : 'Group/Actor'}</div>
+        </div>`;
+
+        // 2. BIM Data from JSON
+        if (dataMapData && dataMapData[object.name]) {
+             for (const [key, val] of Object.entries(dataMapData[object.name])) {
+                html += `<div class="data-row">
+                    <div class="data-label">${key}</div>
+                    <div class="data-value">${val}</div>
+                </div>`;
+            }
+        } else {
+            html += `<div style="padding:10px 0; color:#888; font-style:italic;">No additional BIM data found for this element.</div>`;
+        }
+
+        content.innerHTML = html;
+    }
+
+    function addOutline(mesh) {
+        if (!mesh.isMesh) return;
+        // Ensure only one selection outline exists at a time
+        // (clearOutline should be called by the caller before addOutline)
+
+        if (selectionOutlineMode === 'box') {
+            const box = new THREE.BoxHelper(mesh, 0x0099ff);
+            box.material.depthTest = false;
+            box.renderOrder = 999;
+            // Add to scene (BoxHelper is in world space)
+            scene.add(box);
+            outlineObject = box;
+        } else if (selectionOutlineMode === 'edges') {
+            if (!mesh.geometry) return;
+            const edges = new THREE.EdgesGeometry(mesh.geometry, 15);
+            const outlineLineMaterial = new THREE.LineBasicMaterial({
+                color: 0x0099ff,
+                fog: false,
+                transparent: true,
+                opacity: 1.0,
+                depthTest: false,
+                depthWrite: false
+            });
+            const outlineEdges = new THREE.LineSegments(edges, outlineLineMaterial);
+            outlineEdges.renderOrder = 999;
+            mesh.add(outlineEdges);
+            outlineObject = outlineEdges;
+        } else {
+            // 'none' selected: do nothing
+            outlineObject = null;
+        }
+    }
+
+    function clearOutline() {
+        if (outlineObject) {
+            if (outlineObject.parent) outlineObject.parent.remove(outlineObject);
+            else scene.remove(outlineObject);
+            outlineObject = null;
+        }
+    }
+
+
+    // --- 7. MARKER CALLBACKS & START ---
+    const anchor = mindarThree.addAnchor(0);
+    anchor.group.add(modelGroup);
+
+    const startScreenEl = document.getElementById('start-screen');
+    const bottomControlsEl = document.getElementById('bottom-controls');
+    const selectCursorEl = document.getElementById('select-cursor');
+
+    // hide interactive UI until marker detected
+    if (bottomControlsEl) bottomControlsEl.style.display = 'none';
+    if (selectCursorEl) selectCursorEl.style.display = 'none';
+
+    anchor.onTargetFound = () => {
+        if (bottomControlsEl) bottomControlsEl.style.display = '';
+        if (selectCursorEl) selectCursorEl.style.display = '';
+        if (startScreenEl) startScreenEl.style.display = 'none';
+    };
+    anchor.onTargetLost = () => {
+        if (bottomControlsEl) bottomControlsEl.style.display = 'none';
+        if (selectCursorEl) selectCursorEl.style.display = 'none';
+        if (startScreenEl) startScreenEl.style.display = '';
+        closeData();
+    };
+
+    // renderer animation loop can run regardless of session state
+    renderer.setAnimationLoop(() => {
+        renderer.render(scene, camera);
     });
 
   </script>
