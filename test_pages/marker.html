@@ -570,7 +570,7 @@
     setLoadingOverlay(true, 'Loading project manifest...');
     loadProjectManifest(modelID).then(async (manifest) => {
       if (!manifest) { setLoadingOverlay(false); return; }
-      document.getElementById('tree-container').innerHTML = ''; // Clear loading
+      document.getElementById('tree-container').innerHTML = ''; // Clear loading 
       phaseManifestData = manifest;
 
       // Load Data Map
