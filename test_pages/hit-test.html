@@ -399,7 +399,7 @@
     <h1>AR Inspection</h1>
     <p>View the phasing timeline and inspect BIM data directly on site.</p>
     <!-- ARButton will be injected here via JS -->
-    <a href="model-view.html" style="color: #ffffff; font-size: 12px; margin-top: 30px; text-decoration: none;">Exit to Inspector</a>
+    <a id="back-to-inspector" style="color: #ffffff; font-size: 12px; margin-top: 30px; text-decoration: none;">Exit to Inspector</a>
   </div>
 
   <!-- UI OVERLAY -->
@@ -514,6 +514,7 @@
     
     // Update Back Link
     document.getElementById('back-btn').href = `model-view.html?id=${modelID}`;
+    document.getElementById('back-to-inspector').href = `model-view.html?id=${modelID}`;
 
     const paths = getPaths(modelID);
 

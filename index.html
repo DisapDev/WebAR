@@ -24,12 +24,13 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        body { font-family: sans-serif; background: #1a1a1a; color: white; padding: 20px; }
+        body { font-family: "Google Sans Flex"; background: #1a1a1a; color: white; padding: 20px; }
         .project-card {
             background: #333; padding: 20px; margin-bottom: 15px;
             border-radius: 8px; display: flex; justify-content: space-between; align-items: center;
         }
         .btn {
+            font-family: "Google Sans Flex";
             background: #00D2FF; color: black; text-decoration: none;
             padding: 10px 20px; border-radius: 5px; font-weight: bold;
         }
@@ -42,7 +43,7 @@
 
     <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom: 12px;">
         <div style="color:#aaa; font-size:14px">Auto-generated from <code>models.json</code></div>
-        <button id="refresh-btn" class="btn" style="background: #ffffff;">Refresh</button>
+        <button onclick="refreshPage()" id="refresh-btn" class="btn" style="background: #ffffff;">Refresh</button>
     </div>
 
     <div id="models-list"></div>
@@ -86,6 +87,10 @@
             document.getElementById('refresh-btn').addEventListener('click', fetchModels);
             fetchModels();
         });
+        
+        function refreshPage() {
+            window.location.reload();
+        }
     </script>
 </body>
 </html>
