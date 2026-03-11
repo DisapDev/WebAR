@@ -662,6 +662,12 @@
       });
 
       phaseEntries = [];
+      // Prepare counters for progress display
+      const totalModels = sortedPhases.length;
+      if (totalModels > 0) {
+          setLoadingOverlay(true, `Loading models (0/${totalModels})`);
+          updateLoadingProgress(0, totalModels);
+      }
       for (let i = 0; i < sortedPhases.length; i++) {
         const phaseName = sortedPhases[i];
         const url = paths.getGLBPath(phaseName);
@@ -677,6 +683,13 @@
           
           // Add to Hierarchy UI
           addHierarchyItem(phaseName, model);
+
+          // update progress text and bar
+          if (totalModels > 0) {
+              const loadedCount = phaseEntries.length;
+              setLoadingOverlay(true, `Loading models (${loadedCount}/${totalModels})`);
+              updateLoadingProgress(loadedCount, totalModels);
+          }
 
         } catch (e) { console.error("Load failed", url, e); }
       }
