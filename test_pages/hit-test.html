@@ -308,18 +308,6 @@
     }
     #start-screen h1 { margin-bottom: 10px; font-size: 24px; }
     #start-screen p { color: #aaa; margin-bottom: 30px; font-size: 14px; max-width: 80%; line-height: 1.5; }
-    /* start button styling (copied from marker.html) */
-    #start-ar-btn {
-      margin-top: 24px;
-      padding: 12px 36px;
-      font-size: 18px;
-      font-weight: 600;
-      background: var(--primary);
-      color: black;
-      border: none;
-      border-radius: 24px;
-      cursor: pointer;
-    }
 
     /* Loading Overlay (shows while models are loading) */
     #loading-overlay {
@@ -343,6 +331,27 @@
       border: 4px solid rgba(255,255,255,0.12);
       border-top-color: var(--primary);
       animation: spin 1s linear infinite;
+    }
+    #loading-overlay .progress-bar {
+      position: relative;
+      width: 100%;
+      height: 6px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    #loading-overlay .progress-bar .progress-fill {
+      width: 0%;
+      height: 100%;
+      background: var(--primary);
+      transition: width 0.2s ease;
+    }
+    #loading-overlay .progress-text {
+      font-size: 13px;
+      color: #e6eef6;
+      opacity: 0.85;
+      margin-top: 4px;
     }
     @keyframes spin { to { transform: rotate(360deg); } }
     
@@ -389,8 +398,7 @@
   <div id="start-screen">
     <h1>AR Inspection</h1>
     <p>View the phasing timeline and inspect BIM data directly on site.</p>
-    <!-- manual start button for MindAR -->
-    <button id="start-ar-btn" class="start-btn">START AR</button>
+    <!-- ARButton will be injected here via JS -->
     <a href="model-view.html" style="color: #ffffff; font-size: 12px; margin-top: 30px; text-decoration: none;">Exit to Inspector</a>
   </div>
 
@@ -460,6 +468,13 @@
     <!-- BOTTOM CONTROLS -->
     <div id="bottom-controls">
 
+      <!-- Mode Switcher: Place / Select -->
+      <div class="mode-switch" aria-hidden="false">
+        <div class="mode-pill" role="tablist" aria-label="Mode Switcher">
+          <button id="btn-place" class="mode-btn active" aria-pressed="true">✢ Place</button>
+          <button id="btn-select" class="mode-btn" aria-pressed="false">👆 Select</button>
+        </div>
+      </div>
 
       <!-- Compact Controls Row: Scale + Phase side-by-side -->
       <div class="controls-row">
@@ -482,119 +497,192 @@
     <div id="loading-overlay" class="hidden" aria-hidden="true">
       <div class="spinner" role="status" aria-hidden="true"></div>
       <div class="loading-text">Loading models…</div>
+      <div class="progress-bar" aria-hidden="true"><div class="progress-fill"></div></div>
+      <div class="progress-text" aria-hidden="true"></div>
     </div>
   </div>
 
-    <script type="module">
-    // Entire AR/interaction script copied and simplified from marker.html
+  <script type="module">
     import * as THREE from 'three';
+    import { ARButton } from 'three/addons/webxr/ARButton.js';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-    import { MindARThree } from 'https://cdn.jsdelivr.net/npm/mind-ar@1.1.5/dist/mindar-image-three.prod.js';
     import { getModelID, getPaths, loadProjectManifest } from '../js/project-loader.js';
 
     // --- 1. CONFIG & INIT ---
     const modelID = getModelID();
     if (!modelID) { alert("No Model ID!"); window.location.href = "../index.html"; }
+    
+    // Update Back Link
     document.getElementById('back-btn').href = `model-view.html?id=${modelID}`;
+
     const paths = getPaths(modelID);
 
+    // Three.js Core
     const container = document.createElement('div');
     document.body.appendChild(container);
+    const scene = new THREE.Scene();
+    const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 20);
+    
+    const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.xr.enabled = true;
+    container.appendChild(renderer.domElement);
 
-    const mindarThree = new MindARThree({
-      container,
-      imageTargetSrc: `${paths.base}/marker.mind`,
-      maxTrack: 1
-    });
-    const { renderer, scene, camera } = mindarThree;
-
-    // lights
+    // Lights
     const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 3);
     light.position.set(0.5, 1, 0.25);
     scene.add(light);
     const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
-    dirLight.position.set(0, 10, 0);
+    dirLight.position.set(0, 10, 0); // Overhead light
     scene.add(dirLight);
 
-    // start screen
+    // --- 2. AR SETUP ---
+    const overlayDiv = document.getElementById('dom-overlay');
     const startScreen = document.getElementById('start-screen');
-    async function startAR() {
-      try {
-        await mindarThree.start();
-        console.log('MindAR started');
-      } catch (e) {
-        console.error('AR start failed', e);
-        alert('AR start failed: ' + (e.message || e));
-      }
-      if (startScreen) startScreen.style.display = 'none';
-    }
-    const startBtn = document.getElementById('start-ar-btn');
-    if (startBtn) startBtn.addEventListener('click', startAR);
-    // also kick off on any screen tap (helps when button is missing)
-    container.addEventListener('click', () => {
-      if (startScreen && startScreen.style.display !== 'none') startAR();
+
+    // Create custom AR Button inside our start screen
+    const arBtn = ARButton.createButton(renderer, { 
+        requiredFeatures: ['hit-test'], 
+        optionalFeatures: ['dom-overlay'],
+        domOverlay: { root: overlayDiv }
+    });
+    arBtn.id = "ar-button"; // For CSS styling
+    startScreen.insertBefore(arBtn, startScreen.lastElementChild);
+
+    // Handle Session Events
+    renderer.xr.addEventListener('sessionstart', () => {
+        startScreen.style.display = 'none';
+    });
+    renderer.xr.addEventListener('sessionend', () => {
+        location.reload();
     });
 
     // --- 3. SCENE OBJECTS ---
     const modelGroup = new THREE.Group();
+    scene.add(modelGroup);
+
+    // Reticle (The Ring)
+    const reticle = new THREE.Mesh(
+        new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2),
+        new THREE.MeshBasicMaterial({ color: 0xFFFFFF, opacity: 0.8, transparent: true })
+    );
+    reticle.matrixAutoUpdate = false;
+    reticle.visible = false;
+    scene.add(reticle);
+
+    // State Variables
+    let currentMode = 'place'; // 'place' or 'select'
     let modelScale = 0.05;
 
+    // Mode Switcher Buttons
+    (function() {
+      function setMode(mode){
+        currentMode = mode;
+        const bp = document.getElementById('btn-place');
+        const bs = document.getElementById('btn-select');
+        if (bp) { bp.classList.toggle('active', mode === 'place'); bp.setAttribute('aria-pressed', mode === 'place'); }
+        if (bs) { bs.classList.toggle('active', mode === 'select'); bs.setAttribute('aria-pressed', mode === 'select'); }
+      }
+      const bp = document.getElementById('btn-place');
+      const bs = document.getElementById('btn-select');
+      if (bp) bp.addEventListener('click', (e)=>{ e.stopPropagation(); setMode('place'); });
+      if (bs) bs.addEventListener('click', (e)=>{ e.stopPropagation(); setMode('select'); });
+    })();
+    
     const loader = new GLTFLoader();
     let phaseEntries = [];
     let phaseManifestData = null;
     let dataMapData = null;
+    let hitTestSource = null;
+    let hitTestSourceRequested = false;
 
+    // Raycasting
     const raycaster = new THREE.Raycaster();
     const mouse = new THREE.Vector2();
-    let outlineObject = null;
+    let outlineObject = null; // Store current outline
 
+    // --- 4. LOAD CONTENT ---
     function loadGLB(url) {
       return new Promise((resolve, reject) => {
-      loader.load(url, gltf => resolve(gltf), undefined, err => reject(err));
+        loader.load(url, gltf => resolve(gltf), undefined, err => reject(err));
       });
     }
 
+    // Show overlay while manifest + models are being fetched
     const _loadingOverlayEl = document.getElementById('loading-overlay');
     function setLoadingOverlay(show, text) {
-      if (!_loadingOverlayEl) return;
-      _loadingOverlayEl.classList.toggle('hidden', !show);
-      if (text !== undefined) {
-        const t = _loadingOverlayEl.querySelector('.loading-text');
-        if (t) t.textContent = String(text);
-      }
+        if (!_loadingOverlayEl) return;
+        _loadingOverlayEl.classList.toggle('hidden', !show);
+        if (text !== undefined) {
+            const t = _loadingOverlayEl.querySelector('.loading-text');
+            if (t) t.textContent = String(text);
+        }
+        // reset progress when hiding
+        if (!show) {
+            updateLoadingProgress(0, 0);
+        }
+    }
+
+    function updateLoadingProgress(loaded, total) {
+        if (!_loadingOverlayEl) return;
+        const bar = _loadingOverlayEl.querySelector('.progress-bar .progress-fill');
+        const textEl = _loadingOverlayEl.querySelector('.progress-text');
+        let pct = 0;
+        if (total && total > 0) {
+            pct = Math.round((loaded / total) * 100);
+        }
+        if (bar) bar.style.width = pct + '%';
+        if (textEl) textEl.textContent = total ? `${pct}% (${loaded} / ${total})` : '';
     }
 
     setLoadingOverlay(true, 'Loading project manifest...');
-    loadProjectManifest(modelID).then(async (manifest) => {
+    loadProjectManifest(modelID, (loaded, total) => {
+        updateLoadingProgress(loaded, total);
+        const msg = total && total > 0 ?
+            `Loading project manifest... (${Math.round((loaded/total)*100)}%)` :
+            'Loading project manifest...';
+        setLoadingOverlay(true, msg);
+    }).then(async (manifest) => {
       if (!manifest) { setLoadingOverlay(false); return; }
-      document.getElementById('tree-container').innerHTML = ''; 
+      document.getElementById('tree-container').innerHTML = ''; // Clear loading
       phaseManifestData = manifest;
 
+      // Load Data Map
       try {
-      const res = await fetch(paths.dataMap);
-      if (res.ok) dataMapData = await res.json();
+        const res = await fetch(paths.dataMap);
+        if (res.ok) dataMapData = await res.json();
       } catch(e) { console.warn("No data map found"); }
 
+      // Sort phases
       const sortedPhases = Object.keys(manifest).sort((a, b) => {
-      const numA = parseInt(a.match(/\d+/)[0] || 0);
-      const numB = parseInt(b.match(/\d+/)[0] || 0);
-      return numA - numB;
+        const numA = parseInt(a.match(/\d+/)[0] || 0);
+        const numB = parseInt(b.match(/\d+/)[0] || 0);
+        return numA - numB;
       });
 
       phaseEntries = [];
       for (let i = 0; i < sortedPhases.length; i++) {
-      const phaseName = sortedPhases[i];
-      const url = paths.getGLBPath(phaseName);
-      try {
-        const gltf = await loadGLB(url);
-        const model = gltf.scene;
-        model.scale.set(modelScale, modelScale, modelScale);
-        modelGroup.add(model);
-        phaseEntries.push({ name: phaseName, model });
-        addHierarchyItem(phaseName, model);
-      } catch (e) { console.error("Load failed", url, e); }
+        const phaseName = sortedPhases[i];
+        const url = paths.getGLBPath(phaseName);
+        
+        try {
+          const gltf = await loadGLB(url);
+          const model = gltf.scene;
+          
+          model.scale.set(modelScale, modelScale, modelScale);
+          modelGroup.add(model);
+          
+          phaseEntries.push({ name: phaseName, model });
+          
+          // Add to Hierarchy UI
+          addHierarchyItem(phaseName, model);
+
+        } catch (e) { console.error("Load failed", url, e); }
       }
+      
       setupSlider();
+      // All done loading models
       setLoadingOverlay(false);
     }).catch((err) => {
       console.error('Project load failed', err);
@@ -602,361 +690,610 @@
     });
 
     // --- 5. UI LOGIC ---
+    
+    // Sidebar Toggles
     const sidebar = document.getElementById('sidebar');
     const toggleSidebar = () => sidebar.classList.toggle('open');
     document.getElementById('sidebar-toggle').addEventListener('click', toggleSidebar);
     document.getElementById('sidebar-close').addEventListener('click', () => sidebar.classList.remove('open'));
 
+    // Settings UI
     const settingsToggle = document.getElementById('settings-toggle');
     const settingsPanel = document.getElementById('settings-panel');
-    let selectionOutlineMode = localStorage.getItem('outlineMode') || 'edges';
-    let hitboxSize = localStorage.getItem('hitboxSize') || 'normal';
+
+    // Default settings (persist to localStorage)
+    let selectionOutlineMode = localStorage.getItem('outlineMode') || 'edges'; // 'edges' | 'box' | 'none'
+    let hitboxSize = localStorage.getItem('hitboxSize') || 'normal'; // 'normal' | 'large'
     let hitboxFactor = (hitboxSize === 'large') ? 1.8 : 1.0;
+
+    // Track currently selected mesh so we can reapply outline when settings change
     let selectedMesh = null;
+
+    // Track last phase notice to prevent repeated popups on input events
     let lastPhaseNoticeIdx = -1;
+
+    // Initialize UI state for settings
     const outlineInputs = document.querySelectorAll('input[name="outline-mode"]');
     const hitboxInputs = document.querySelectorAll('input[name="hitbox-size"]');
     outlineInputs.forEach(i => { i.checked = (i.value === selectionOutlineMode); i.addEventListener('change', (e) => {
-      if (!e.target.checked) return;
-      selectionOutlineMode = e.target.value;
-      localStorage.setItem('outlineMode', selectionOutlineMode);
-      if (selectedMesh) { clearOutline(); addOutline(selectedMesh); }
-      clearHover();
+        if (!e.target.checked) return;
+        selectionOutlineMode = e.target.value;
+        localStorage.setItem('outlineMode', selectionOutlineMode);
+        // Reapply outline to the selected mesh if any and clear hover outlines so visual updates are immediate
+        if (selectedMesh) {
+            clearOutline();
+            addOutline(selectedMesh);
+        }
+        clearHover();
     }); });
     hitboxInputs.forEach(i => { i.checked = (i.value === hitboxSize); i.addEventListener('change', (e) => {
-      if (!e.target.checked) return;
-      hitboxSize = e.target.value;
-      hitboxFactor = (hitboxSize === 'large') ? 1.8 : 1.0;
-      localStorage.setItem('hitboxSize', hitboxSize);
+        if (!e.target.checked) return;
+        hitboxSize = e.target.value;
+        hitboxFactor = (hitboxSize === 'large') ? 1.8 : 1.0;
+        localStorage.setItem('hitboxSize', hitboxSize);
     }); });
+
+    // Fullscreen on gesture setting (persisted)
     let fullscreenOnGesture = localStorage.getItem('fullscreenOnGesture') === '1';
     const fsCheckbox = document.getElementById('setting-fullscreen-gesture');
     if (fsCheckbox) {
-      fsCheckbox.checked = fullscreenOnGesture;
-      fsCheckbox.addEventListener('change', (e) => {
-        fullscreenOnGesture = !!e.target.checked;
-        localStorage.setItem('fullscreenOnGesture', fullscreenOnGesture ? '1' : '0');
-      });
+        fsCheckbox.checked = fullscreenOnGesture;
+        fsCheckbox.addEventListener('change', (e) => {
+            fullscreenOnGesture = !!e.target.checked;
+            localStorage.setItem('fullscreenOnGesture', fullscreenOnGesture ? '1' : '0');
+        });
     }
+
+    // Helper to attempt fullscreen using the user gesture (safe vendor fallbacks)
     function tryEnterFullscreen() {
-      if (!fullscreenOnGesture) return;
-      if (document.fullscreenElement) return;
-      const el = document.documentElement;
-      const request = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
-      if (!request) return;
-      try {
-        const p = request.call(el);
-        if (p && typeof p.then === 'function') p.catch(err => console.warn('Fullscreen request failed:', err));
-      } catch (err) {
-        try { request.call(el); } catch (e) { console.warn('Fullscreen request failed:', e); }
-      }
+        if (!fullscreenOnGesture) return;
+        if (document.fullscreenElement) return;
+        const el = document.documentElement;
+        const request = el.requestFullscreen || el.webkitRequestFullscreen || el.msRequestFullscreen;
+        if (!request) return;
+        try {
+            const p = request.call(el);
+            if (p && typeof p.then === 'function') p.catch(err => console.warn('Fullscreen request failed:', err));
+        } catch (err) {
+            // Some older WebKit implementations require direct call without promise
+            try { request.call(el); } catch (e) { console.warn('Fullscreen request failed:', e); }
+        }
     }
+
     if (settingsToggle) {
       settingsToggle.addEventListener('click', (e) => {
-        if (settingsPanel) settingsPanel.classList.toggle('active');
-        e.stopPropagation();
+          if (settingsPanel) settingsPanel.classList.toggle('active');
+          e.stopPropagation();
       });
     }
+    // Close settings when clicking outside
     document.addEventListener('click', (e) => {
-      if (!e.target.closest('#settings-panel') && !e.target.closest('#settings-toggle')) {
-        if (settingsPanel) settingsPanel.classList.remove('active');
-      }
+        if (!e.target.closest('#settings-panel') && !e.target.closest('#settings-toggle')) {
+            if (settingsPanel) settingsPanel.classList.remove('active');
+        }
     });
+
+    // Data Panel
     const dataPanel = document.getElementById('data-panel');
-    const closeData = () => { dataPanel.classList.remove('active'); clearOutline(); selectedMesh = null; };
+    const closeData = () => {
+        dataPanel.classList.remove('active');
+        clearOutline();
+        selectedMesh = null;
+    };
     document.getElementById('close-data').addEventListener('click', closeData);
 
+    // Mode Switcher present in UI — buttons toggle the `currentMode` variable.
+    // If you want to expose toggles later, re-introduce UI and rebind event handlers. (No runtime references remain.)
+
+    // Scale Slider
     const scaleSlider = document.getElementById('scale-slider');
     scaleSlider.addEventListener('input', (e) => {
-      modelScale = parseFloat(e.target.value);
-      modelGroup.children.forEach(child => { child.scale.set(modelScale, modelScale, modelScale); });
+        modelScale = parseFloat(e.target.value);
+        modelGroup.children.forEach(child => {
+            child.scale.set(modelScale, modelScale, modelScale);
+        });
     });
 
+    // Phasing Slider
     function setupSlider() {
       const slider = document.getElementById('phase-slider');
       const label = document.getElementById('phase-label');
       slider.max = Math.max(0, phaseEntries.length - 1);
       slider.value = phaseEntries.length - 1;
       label.textContent = `${phaseEntries.length}/${phaseEntries.length}`;
+
       slider.addEventListener('input', (e) => {
-        const idx = parseInt(e.target.value);
-        phaseEntries.forEach((entry, i) => { entry.model.visible = i <= idx; });
-        label.textContent = `${idx + 1}/${phaseEntries.length}`;
-        if (idx !== lastPhaseNoticeIdx) { showPhaseNotice(idx); lastPhaseNoticeIdx = idx; }
+          const idx = parseInt(e.target.value);
+          phaseEntries.forEach((entry, i) => {
+              entry.model.visible = i <= idx;
+          });
+          label.textContent = `${idx + 1}/${phaseEntries.length}`;
+          // Only show notice when the selected phase index actually changes
+          if (idx !== lastPhaseNoticeIdx) {
+              showPhaseNotice(idx);
+              lastPhaseNoticeIdx = idx;
+          }
       });
+
+      // Also listen to change for final value (in case input events are noisy)
       slider.addEventListener('change', (e) => {
-        const idx = parseInt(e.target.value);
-        if (idx !== lastPhaseNoticeIdx) { showPhaseNotice(idx); lastPhaseNoticeIdx = idx; }
+          const idx = parseInt(e.target.value);
+          if (idx !== lastPhaseNoticeIdx) {
+              showPhaseNotice(idx);
+              lastPhaseNoticeIdx = idx;
+          }
       });
+      // Initial Apply
       phaseEntries.forEach((entry, i) => entry.model.visible = true);
     }
 
+    // Hierarchy Builder
     function addHierarchyItem(name, object) {
-      const container = document.getElementById('tree-container');
-      const div = document.createElement('div');
-      div.className = 'tree-item';
-      div.innerHTML = `<span class="tree-icon">📁</span> ${name}`;
-      div.addEventListener('click', () => { selectObject(object, name); sidebar.classList.remove('open'); const idx = phaseEntries.findIndex(p => p.name === name); if (idx >= 0) showPhaseNotice(idx, true); });
-      container.appendChild(div);
-      object.traverse((child) => {
-        if (child.isMesh) {
-          const childDiv = document.createElement('div');
-          childDiv.className = 'tree-item';
-          childDiv.style.paddingLeft = '40px';
-          const shortName = child.name.length > 25 ? child.name.substring(0, 22) + '...' : child.name;
-          childDiv.innerHTML = `<span class="tree-icon">🔷</span> ${shortName}`;
-          childDiv.addEventListener('click', (e) => { e.stopPropagation(); selectObject(child, child.name); sidebar.classList.remove('open'); });
-          container.appendChild(childDiv);
-        }
-      });
+        const container = document.getElementById('tree-container');
+        
+        // Parent Item (Phase)
+        const div = document.createElement('div');
+        div.className = 'tree-item';
+        div.innerHTML = `<span class="tree-icon">📁</span> ${name}`;
+        div.addEventListener('click', () => { selectObject(object, name); sidebar.classList.remove('open'); // Close sidebar on selection
+            // Find phase index and show notice
+            const idx = phaseEntries.findIndex(p => p.name === name);
+            if (idx >= 0) showPhaseNotice(idx, true);
+        }); // Select entire phase group
+        container.appendChild(div);
+
+        // Children (Meshes) - Flattened slightly for mobile readable
+        object.traverse((child) => {
+            if (child.isMesh) {
+                const childDiv = document.createElement('div');
+                childDiv.className = 'tree-item';
+                childDiv.style.paddingLeft = '40px'; // Indent
+                // Truncate long names
+                const shortName = child.name.length > 25 ? child.name.substring(0, 22) + '...' : child.name;
+                childDiv.innerHTML = `<span class="tree-icon">🔷</span> ${shortName}`;
+                
+                childDiv.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    selectObject(child, child.name);
+                    sidebar.classList.remove('open'); // Close sidebar on selection for better mobile UX
+                });
+                container.appendChild(childDiv);
+            }
+        });
     }
+
+
+    // --- 6. INTERACTION LOGIC ---
 
     const controller = renderer.xr.getController(0);
     controller.addEventListener('select', onSelect);
     scene.add(controller);
+
     function onSelect() {
-      // always selection (no place mode)
-      const tempMatrix = new THREE.Matrix4();
-      tempMatrix.identity().extractRotation(controller.matrixWorld);
-      raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
-      raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
-      const intersects = raycaster.intersectObjects(modelGroup.children, true);
-      let picked = null;
-      if (intersects.length > 0) {
-        const hit = intersects.find(x => x.object.isMesh);
-        if (hit) picked = hit.object;
-      }
-      if (!picked && hitboxFactor > 1.0) picked = broadRaycastPick(raycaster, hitboxFactor);
-      if (picked) { selectObject(picked, picked.name); sidebar.classList.remove('open'); } else { closeData(); }
+        if (currentMode === 'place' && reticle.visible) {
+            // MOVE MODEL TO RETICLE
+            modelGroup.position.setFromMatrixPosition(reticle.matrix);
+            modelGroup.quaternion.setFromRotationMatrix(reticle.matrix);
+            return;
+        }
+        if (currentMode === 'select') {
+            // Raycast forward from controller
+            const tempMatrix = new THREE.Matrix4();
+            tempMatrix.identity().extractRotation(controller.matrixWorld);
+            raycaster.ray.origin.setFromMatrixPosition(controller.matrixWorld);
+            raycaster.ray.direction.set(0, 0, -1).applyMatrix4(tempMatrix);
+
+            const intersects = raycaster.intersectObjects(modelGroup.children, true);
+            let picked = null;
+            if (intersects.length > 0) {
+                const hit = intersects.find(x => x.object.isMesh);
+                if (hit) picked = hit.object;
+            }
+            if (!picked && hitboxFactor > 1.0) {
+                picked = broadRaycastPick(raycaster, hitboxFactor);
+            }
+
+            if (picked) {
+                selectObject(picked, picked.name);
+                sidebar.classList.remove('open');
+            } else {
+                closeData();
+            }
+        }
     }
+
+    // Touch Listener for Selection (DOM Overlay)
     container.addEventListener('click', (event) => {
-      // ignore UI
-      if (event.target.closest('#sidebar') || event.target.closest('#data-panel') || event.target.closest('#bottom-controls') || event.target.closest('#top-bar')) return;
-      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-      mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
-      raycaster.setFromCamera(mouse, camera);
-      const intersects = raycaster.intersectObjects(modelGroup.children, true);
-      let picked = null;
-      if (intersects.length > 0) {
-        const hit = intersects.find(x => x.object.isMesh);
-        if (hit) picked = hit.object;
-      }
-      if (!picked && hitboxFactor > 1.0) picked = broadRaycastPick(raycaster, hitboxFactor);
-      if (picked) { selectObject(picked, picked.name); sidebar.classList.remove('open'); } else { closeData(); }
+        if (currentMode !== 'select') return;
+        
+        // Ignore clicks on UI
+        if (event.target.closest('#sidebar') || 
+            event.target.closest('#data-panel') || 
+            event.target.closest('#bottom-controls') || 
+            event.target.closest('#top-bar')) return;
+
+        // Normalized Device Coords
+        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
+
+        raycaster.setFromCamera(mouse, camera);
+        
+        // Intersect
+        const intersects = raycaster.intersectObjects(modelGroup.children, true);
+        let picked = null;
+        if (intersects.length > 0) {
+            const hit = intersects.find(x => x.object.isMesh);
+            if (hit) picked = hit.object;
+        }
+        // Broad-phase hit using bounding spheres when normal intersects fail or when "larger" hitbox is enabled
+        if (!picked && hitboxFactor > 1.0) {
+            picked = broadRaycastPick(raycaster, hitboxFactor);
+        }
+
+        if (picked) {
+            selectObject(picked, picked.name);
+            sidebar.classList.remove('open');
+        } else {
+            closeData();
+        }
     });
 
+    // Hover / cursor feedback for select mode
     let hoveredObject = null;
     let hoverOutline = null;
+
     function clearHover() {
-      if (hoverOutline) { if (hoverOutline.parent) hoverOutline.parent.remove(hoverOutline); hoverOutline = null; }
-      hoveredObject = null;
-      const cursorEl = document.getElementById('select-cursor');
-      if (cursorEl) cursorEl.classList.remove('hit');
+        if (hoverOutline) {
+            if (hoverOutline.parent) hoverOutline.parent.remove(hoverOutline);
+            hoverOutline = null;
+        }
+        hoveredObject = null;
+        const cursorEl = document.getElementById('select-cursor');
+        if (cursorEl) cursorEl.classList.remove('hit');
     }
+
     container.addEventListener('pointermove', (event) => {
-      if (event.target.closest('#sidebar') || event.target.closest('#data-panel') || event.target.closest('#bottom-controls') || event.target.closest('#top-bar')) { clearHover(); return; }
-      mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-      mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
-      raycaster.setFromCamera(mouse, camera);
-      const intersects = raycaster.intersectObjects(modelGroup.children, true);
-      if (intersects.length > 0) {
-        const hit = intersects.find(x => x.object.isMesh);
-        if (hit) {
-          if (hoveredObject !== hit.object) {
+        if (currentMode !== 'select') return;
+        // Visual cursor removed — keep hover detection only
+        // Hide hover when pointer is over UI
+        if (event.target.closest('#sidebar') || event.target.closest('#data-panel') || event.target.closest('#bottom-controls') || event.target.closest('#top-bar')) {
             clearHover();
-            hoveredObject = hit.object;
-            if (hoveredObject.geometry) {
-              if (selectionOutlineMode === 'box') {
-                const box = new THREE.BoxHelper(hoveredObject, 0x0099ff);
-                box.material.depthTest = false;
-                box.renderOrder = 998;
-                scene.add(box);
-                hoverOutline = box;
-              } else if (selectionOutlineMode === 'edges') {
-                const edges = new THREE.EdgesGeometry(hoveredObject.geometry, 15);
-                const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0x0099ff, depthTest: false }));
-                line.renderOrder = 998;
-                hoveredObject.add(line);
-                hoverOutline = line;
-              } else { hoverOutline = null; }
+            return;
+        }
+
+        // Raycast to detect hover
+        mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+        mouse.y = - (event.clientY / window.innerHeight) * 2 + 1;
+        raycaster.setFromCamera(mouse, camera);
+        const intersects = raycaster.intersectObjects(modelGroup.children, true);
+
+        if (intersects.length > 0) {
+            const hit = intersects.find(x => x.object.isMesh);
+            if (hit) {
+                if (hoveredObject !== hit.object) {
+                    clearHover();
+                    hoveredObject = hit.object;
+                    // Create thin edge outline (matches model-view/marker visuals)
+                    if (hoveredObject.geometry) {
+                        if (selectionOutlineMode === 'box') {
+                            const box = new THREE.BoxHelper(hoveredObject, 0x0099ff);
+                            box.material.depthTest = false;
+                            box.renderOrder = 998;
+                            scene.add(box);
+                            hoverOutline = box;
+                        } else if (selectionOutlineMode === 'edges') {
+                            const edges = new THREE.EdgesGeometry(hoveredObject.geometry, 15);
+                            const line = new THREE.LineSegments(
+                                edges,
+                                new THREE.LineBasicMaterial({ color: 0x0099ff, depthTest: false })
+                            );
+                            line.renderOrder = 998;
+                            hoveredObject.add(line);
+                            hoverOutline = line;
+                        } else {
+                            hoverOutline = null;
+                        }
+                    }
+                }
+                // Hit state (no visual cursor)
+                return;
             }
-          }
-          return;
         }
-      }
-      clearHover();
-    });
-    document.addEventListener('pointerdown', (e) => {
-      if (e.target.closest('#sidebar') || e.target.closest('#data-panel') || e.target.closest('#bottom-controls') || e.target.closest('#top-bar')) {
+        // No hit
         clearHover();
-      }
     });
 
+    // Ensure hover cleared when leaving select mode or clicking UI
+    document.addEventListener('pointerdown', (e) => {
+        if (currentMode !== 'select') return;
+        if (e.target.closest('#sidebar') || e.target.closest('#data-panel') || e.target.closest('#bottom-controls') || e.target.closest('#top-bar')) {
+            clearHover();
+        }
+    });
+
+    // Phase notice helper: show top floating notice for 3 seconds
+    // Helper to recursively find keys matching pattern inside an object
     function findKeyRecursive(obj, pattern) {
-      if (!obj || typeof obj !== 'object') return null;
-      for (const key of Object.keys(obj)) {
-        try { if (pattern.test(key)) return obj[key]; } catch (e) {}
-        const val = obj[key];
-        if (val && typeof val === 'object') {
-          const found = findKeyRecursive(val, pattern);
-          if (found != null) return found;
+        if (!obj || typeof obj !== 'object') return null;
+        for (const key of Object.keys(obj)) {
+            try {
+                if (pattern.test(key)) return obj[key];
+            } catch (e) {}
+            const val = obj[key];
+            if (val && typeof val === 'object') {
+                const found = findKeyRecursive(val, pattern);
+                if (found != null) return found;
+            }
         }
-      }
-      return null;
+        return null;
     }
+
     function getPhaseDate(idx) {
-      if (!phaseEntries || !phaseEntries[idx]) return null;
-      const name = phaseEntries[idx].name;
-      if (!phaseManifestData) return null;
-      const data = phaseManifestData[name];
-      if (data == null) return null;
-      if (typeof data === 'string' || typeof data === 'number') {
-        try {
-          const d = new Date(data);
-          if (!isNaN(d)) return d.toLocaleString();
-        } catch (e) {}
-        return String(data);
-      }
-      const candidates = ['date','phaseDate','phase_date','startDate','start_date','start','timestamp'];
-      for (const key of candidates) {
-        let val = data[key];
-        if (!val && data.metadata) val = data.metadata[key];
-        if (val) {
-          try { const d = new Date(val); if (!isNaN(d)) return d.toLocaleString(); } catch (e) { return String(val); }
-          return String(val);
+        if (!phaseEntries || !phaseEntries[idx]) return null;
+        const name = phaseEntries[idx].name;
+        if (!phaseManifestData) return null;
+        const data = phaseManifestData[name];
+        if (data == null) return null;
+        // If data is a primitive string/number (common manifest format like "Phase_0": "10/11/2025 ..."), use it directly
+        if (typeof data === 'string' || typeof data === 'number') {
+            try {
+                const d = new Date(data);
+                if (!isNaN(d)) return d.toLocaleString();
+            } catch (e) {}
+            return String(data);
         }
-      }
-      return null;
+        // Try common date keys on object entries
+        const candidates = ['date','phaseDate','phase_date','startDate','start_date','start','timestamp'];
+        for (const key of candidates) {
+            let val = data[key];
+            if (!val && data.metadata) val = data.metadata[key];
+            if (val) {
+                // Format timestamps or ISO date strings
+                try {
+                    const d = new Date(val);
+                    if (!isNaN(d)) return d.toLocaleString();
+                } catch (e) { return String(val); }
+                return String(val);
+            }
+        }
+        return null;
     }
+
+    // Tries to extract the TimeLiner / Task Start planned value from phase manifest
     function getPhaseTimeLinerValue(idx) {
-      if (!phaseEntries || !phaseEntries[idx]) return null;
-      const name = phaseEntries[idx].name;
-      if (!phaseManifestData) return null;
-      const data = phaseManifestData[name];
-      if (data == null) return null;
-      if (typeof data === 'string' || typeof data === 'number') return data;
-      const exactKey = Object.keys(data).find(k => k.toLowerCase().includes('timeliner') && k.toLowerCase().includes('task start'));
-      if (exactKey) return data[exactKey];
-      const pattern = /timeliner.*task.*start|task.*start.*timeliner|contained in task start/i;
-      const found = findKeyRecursive(data, pattern);
-      if (found != null) return found;
-      const tlKey = Object.keys(data).find(k => k.toLowerCase().includes('timeliner'));
-      if (tlKey) return data[tlKey];
-      if (data.metadata) {
-        const metaFound = findKeyRecursive(data.metadata, pattern);
-        if (metaFound != null) return metaFound;
-      }
-      return null;
-    }
-    function showPhaseNotice(idx, force = false) {
-      const notice = document.getElementById('phase-notice');
-      if (!notice) return;
-      if (!force && idx === lastPhaseNoticeIdx) return;
-      const name = phaseEntries[idx] ? phaseEntries[idx].name : `Phase ${idx+1}`;
-      let phaseLabel = null;
-      const m = (phaseEntries[idx] && phaseEntries[idx].name) ? phaseEntries[idx].name.match(/(\d+)/) : null;
-      if (m) phaseLabel = `Phase ${m[1]}`; else phaseLabel = `Phase ${idx+1}`;
-      const timeVal = getPhaseTimeLinerValue(idx);
-      let displayDate = null;
-      if (timeVal) {
-        try { const d = new Date(timeVal); if (!isNaN(d)) displayDate = d.toLocaleString(); else displayDate = String(timeVal); } catch (e) { displayDate = String(timeVal); }
-      } else {
-        displayDate = getPhaseDate(idx);
-      }
-      notice.innerHTML = `<div class="phase-name">${phaseLabel}</div><div class="phase-value">${displayDate || ''}</div>`;
-      notice.classList.remove('hiding'); notice.classList.add('show');
-      clearTimeout(notice._hideTimer);
-      notice._hideTimer = setTimeout(() => {
-        notice.classList.remove('show'); notice.classList.add('hiding');
-        clearTimeout(notice._clearTimer);
-        notice._clearTimer = setTimeout(() => { notice.classList.remove('hiding'); }, 350);
-      }, 3000);
-      lastPhaseNoticeIdx = idx;
-    }
-    function broadRaycastPick(raycaster, factor = 1.0) {
-      let best = null; let bestT = Infinity; const tmpV = new THREE.Vector3();
-      modelGroup.children.forEach(child => {
-        child.traverse((mesh) => {
-          if (!mesh.isMesh || !mesh.geometry) return;
-          if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
-          tmpV.copy(mesh.geometry.boundingSphere.center);
-          mesh.localToWorld(tmpV);
-          const dist = raycaster.ray.distanceToPoint(tmpV);
-          const maxScale = Math.max(mesh.scale.x, mesh.scale.y, mesh.scale.z);
-          const radius = mesh.geometry.boundingSphere.radius * maxScale;
-          if (dist <= radius * factor) {
-            const originToCenter = new THREE.Vector3().subVectors(tmpV, raycaster.ray.origin);
-            const t = originToCenter.dot(raycaster.ray.direction);
-            if (t >= 0 && t < bestT) { bestT = t; best = mesh; }
-          }
-        });
-      });
-      return best;
-    }
-    function findPhaseIndexByObject(object) {
-      if (!phaseEntries) return -1;
-      for (let i = 0; i < phaseEntries.length; i++) {
-        const root = phaseEntries[i].model;
-        let found = false;
-        root.traverse((child) => { if (child === object) found = true; });
-        if (found) return i;
-      }
-      return -1;
-    }
-    function selectObject(object, name) {
-      sidebar.classList.remove('open'); clearOutline(); selectedMesh = object; if (object.isMesh) addOutline(object);
-      const pidx = findPhaseIndexByObject(object); if (pidx >= 0) showPhaseNotice(pidx, true);
-      const title = document.getElementById('data-title'); const content = document.getElementById('data-content');
-      title.textContent = name || object.name; dataPanel.classList.add('active');
-      let html = '';
-      html += `<div class="data-row"><div class="data-label">Type</div><div class="data-value">${object.isMesh ? 'Static Mesh' : 'Group/Actor'}</div></div>`;
-      if (dataMapData && dataMapData[object.name]) {
-         for (const [key, val] of Object.entries(dataMapData[object.name])) {
-          html += `<div class="data-row"><div class="data-label">${key}</div><div class="data-value">${val}</div></div>`;
+        if (!phaseEntries || !phaseEntries[idx]) return null;
+        const name = phaseEntries[idx].name;
+        if (!phaseManifestData) return null;
+        const data = phaseManifestData[name];
+        if (data == null) return null;
+
+        // If data is a primitive string/number, assume it's the phase date/time and return it
+        if (typeof data === 'string' || typeof data === 'number') return data;
+
+        // First try exact key name (common variant) - user-specified key
+        const exactKey = Object.keys(data).find(k => k.toLowerCase().includes('timeliner') && k.toLowerCase().includes('task start'));
+        if (exactKey) return data[exactKey];
+
+        // Try recursive search for keys that mention TimeLiner and Task Start / Planned
+        const pattern = /timeliner.*task.*start|task.*start.*timeliner|contained in task start/i;
+        const found = findKeyRecursive(data, pattern);
+        if (found != null) return found;
+
+        // As a fallback, search for keys that contain 'timeliner' anywhere
+        const tlKey = Object.keys(data).find(k => k.toLowerCase().includes('timeliner'));
+        if (tlKey) return data[tlKey];
+
+        // Look inside metadata if present
+        if (data.metadata) {
+            const metaFound = findKeyRecursive(data.metadata, pattern);
+            if (metaFound != null) return metaFound;
         }
-      } else {
-        html += `<div style="padding:10px 0; color:#888; font-style:italic;">No additional BIM data found for this element.</div>`;
-      }
-      content.innerHTML = html;
+        return null;
     }
+
+    function showPhaseNotice(idx, force = false) {
+        const notice = document.getElementById('phase-notice');
+        if (!notice) return;
+        if (!force && idx === lastPhaseNoticeIdx) return; // don't repeat unless forced
+
+        const name = phaseEntries[idx] ? phaseEntries[idx].name : `Phase ${idx+1}`;
+        // Build a nice label for phase number: extract digits if present, else index
+        let phaseLabel = null;
+        const m = (phaseEntries[idx] && phaseEntries[idx].name) ? phaseEntries[idx].name.match(/(\d+)/) : null;
+        if (m) phaseLabel = `Phase ${m[1]}`; else phaseLabel = `Phase ${idx+1}`;
+
+        // Prefer the TimeLiner Task Start planned value per user request
+        const timeVal = getPhaseTimeLinerValue(idx);
+        let displayDate = null;
+        if (timeVal) {
+            // Format if looks like a date
+            try {
+                const d = new Date(timeVal);
+                if (!isNaN(d)) displayDate = d.toLocaleString(); else displayDate = String(timeVal);
+            } catch (e) { displayDate = String(timeVal); }
+        } else {
+            // fallback to general phase date
+            displayDate = getPhaseDate(idx);
+        }
+
+        notice.innerHTML = `<div class="phase-name">${phaseLabel}</div><div class="phase-value">${displayDate || ''}</div>`;
+        notice.classList.remove('hiding');
+        notice.classList.add('show');
+
+        clearTimeout(notice._hideTimer);
+        notice._hideTimer = setTimeout(() => {
+            // Start hiding transition
+            notice.classList.remove('show');
+            notice.classList.add('hiding');
+            // Remove hiding class after transition (300ms)
+            clearTimeout(notice._clearTimer);
+            notice._clearTimer = setTimeout(() => {
+                notice.classList.remove('hiding');
+                // Optionally clear content after hide
+                // notice.innerHTML = '';
+            }, 350);
+        }, 3000);
+
+        lastPhaseNoticeIdx = idx;
+    }
+
+    // Broad-phase pick using bounding spheres (useful for small meshes)
+    function broadRaycastPick(raycaster, factor = 1.0) {
+        let best = null;
+        let bestT = Infinity;
+        const tmpV = new THREE.Vector3();
+        modelGroup.children.forEach(child => {
+            child.traverse((mesh) => {
+                if (!mesh.isMesh || !mesh.geometry) return;
+                if (!mesh.geometry.boundingSphere) mesh.geometry.computeBoundingSphere();
+                // Bounding sphere in local space
+                tmpV.copy(mesh.geometry.boundingSphere.center);
+                // Convert to world
+                mesh.localToWorld(tmpV);
+                const dist = raycaster.ray.distanceToPoint(tmpV);
+                const maxScale = Math.max(mesh.scale.x, mesh.scale.y, mesh.scale.z);
+                const radius = mesh.geometry.boundingSphere.radius * maxScale;
+                if (dist <= radius * factor) {
+                    // Measure t along ray to pick nearest
+                    const originToCenter = new THREE.Vector3().subVectors(tmpV, raycaster.ray.origin);
+                    const t = originToCenter.dot(raycaster.ray.direction);
+                    if (t >= 0 && t < bestT) {
+                        bestT = t;
+                        best = mesh;
+                    }
+                }
+            });
+        });
+        return best;
+    }
+
+    function findPhaseIndexByObject(object) {
+        if (!phaseEntries) return -1;
+        for (let i = 0; i < phaseEntries.length; i++) {
+            const root = phaseEntries[i].model;
+            let found = false;
+            root.traverse((child) => { if (child === object) found = true; });
+            if (found) return i;
+        }
+        return -1;
+    }
+
+    function selectObject(object, name) {
+        sidebar.classList.remove('open');
+        clearOutline();
+        selectedMesh = object;
+        if (object.isMesh) addOutline(object);
+
+        // Show phase notice for the phase the object belongs to (if known)
+        const pidx = findPhaseIndexByObject(object);
+        if (pidx >= 0) showPhaseNotice(pidx, true);
+
+        const title = document.getElementById('data-title');
+        const content = document.getElementById('data-content');
+        
+        title.textContent = name || object.name;
+        dataPanel.classList.add('active');
+
+        let html = '';
+        
+        // 1. Mesh Info
+        html += `<div class="data-row">
+            <div class="data-label">Type</div>
+            <div class="data-value">${object.isMesh ? 'Static Mesh' : 'Group/Actor'}</div>
+        </div>`;
+
+        // 2. BIM Data from JSON
+        if (dataMapData && dataMapData[object.name]) {
+             for (const [key, val] of Object.entries(dataMapData[object.name])) {
+                html += `<div class="data-row">
+                    <div class="data-label">${key}</div>
+                    <div class="data-value">${val}</div>
+                </div>`;
+            }
+        } else {
+            html += `<div style="padding:10px 0; color:#888; font-style:italic;">No additional BIM data found for this element.</div>`;
+        }
+
+        content.innerHTML = html;
+    }
+
     function addOutline(mesh) {
-      if (!mesh.isMesh) return;
-      if (selectionOutlineMode === 'box') {
-        const box = new THREE.BoxHelper(mesh, 0x0099ff);
-        box.material.depthTest = false; box.renderOrder = 999; scene.add(box); outlineObject = box;
-      } else if (selectionOutlineMode === 'edges') {
-        if (!mesh.geometry) return;
-        const edges = new THREE.EdgesGeometry(mesh.geometry, 15);
-        const outlineLineMaterial = new THREE.LineBasicMaterial({ color: 0x0099ff, fog: false, transparent: true, opacity: 1.0, depthTest: false, depthWrite: false });
-        const outlineEdges = new THREE.LineSegments(edges, outlineLineMaterial);
-        outlineEdges.renderOrder = 999; mesh.add(outlineEdges); outlineObject = outlineEdges;
-      } else { outlineObject = null; }
+        if (!mesh.isMesh) return;
+        // Ensure only one selection outline exists at a time
+        // (clearOutline should be called by the caller before addOutline)
+
+        if (selectionOutlineMode === 'box') {
+            const box = new THREE.BoxHelper(mesh, 0x0099ff);
+            box.material.depthTest = false;
+            box.renderOrder = 999;
+            // Add to scene (BoxHelper is in world space)
+            scene.add(box);
+            outlineObject = box;
+        } else if (selectionOutlineMode === 'edges') {
+            if (!mesh.geometry) return;
+            const edges = new THREE.EdgesGeometry(mesh.geometry, 15);
+            const outlineLineMaterial = new THREE.LineBasicMaterial({
+                color: 0x0099ff,
+                fog: false,
+                transparent: true,
+                opacity: 1.0,
+                depthTest: false,
+                depthWrite: false
+            });
+            const outlineEdges = new THREE.LineSegments(edges, outlineLineMaterial);
+            outlineEdges.renderOrder = 999;
+            mesh.add(outlineEdges);
+            outlineObject = outlineEdges;
+        } else {
+            // 'none' selected: do nothing
+            outlineObject = null;
+        }
     }
-    function clearOutline() { if (outlineObject) { if (outlineObject.parent) outlineObject.parent.remove(outlineObject); else scene.remove(outlineObject); outlineObject = null; } }
 
-    // --- 7. MARKER CALLBACKS & START ---
-    const anchor = mindarThree.addAnchor(0);
-    anchor.group.add(modelGroup);
-    const startScreenEl = document.getElementById('start-screen');
-    const bottomControlsEl = document.getElementById('bottom-controls');
-    const selectCursorEl = document.getElementById('select-cursor');
-    if (bottomControlsEl) bottomControlsEl.style.display = 'none';
-    if (selectCursorEl) selectCursorEl.style.display = 'none';
-    anchor.onTargetFound = () => {
-      if (bottomControlsEl) bottomControlsEl.style.display = '';
-      if (selectCursorEl) selectCursorEl.style.display = '';
-      if (startScreenEl) startScreenEl.style.display = 'none';
-    };
-    anchor.onTargetLost = () => {
-      if (bottomControlsEl) bottomControlsEl.style.display = 'none';
-      if (selectCursorEl) selectCursorEl.style.display = 'none';
-      if (startScreenEl) startScreenEl.style.display = '';
-      closeData();
-    };
+    function clearOutline() {
+        if (outlineObject) {
+            if (outlineObject.parent) outlineObject.parent.remove(outlineObject);
+            else scene.remove(outlineObject);
+            outlineObject = null;
+        }
+    }
 
-    renderer.setAnimationLoop(() => {
-      renderer.render(scene, camera);
+
+    // --- 7. RENDER LOOP ---
+    renderer.setAnimationLoop((timestamp, frame) => {
+        if (frame) {
+            const referenceSpace = renderer.xr.getReferenceSpace();
+            const session = renderer.xr.getSession();
+
+            if (hitTestSourceRequested === false) {
+                session.requestReferenceSpace('viewer').then((refSpace) => {
+                    session.requestHitTestSource({ space: refSpace }).then((source) => {
+                        hitTestSource = source;
+                    });
+                });
+                session.addEventListener('end', () => {
+                    hitTestSourceRequested = false;
+                    hitTestSource = null;
+                });
+                hitTestSourceRequested = true;
+            }
+
+            if (hitTestSource && currentMode === 'place') {
+                const hitTestResults = frame.getHitTestResults(hitTestSource);
+                if (hitTestResults.length > 0) {
+                    const hit = hitTestResults[0];
+                    reticle.visible = true;
+                    reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
+                } else {
+                    reticle.visible = false;
+                }
+            } else {
+                reticle.visible = false;
+            }
+        }
+        renderer.render(scene, camera);
     });
-    </script>
+
+  </script>
 </body>
 </html>

@@ -344,6 +344,27 @@
       border-top-color: var(--primary);
       animation: spin 1s linear infinite;
     }
+    #loading-overlay .progress-bar {
+      position: relative;
+      width: 100%;
+      height: 6px;
+      background: rgba(255,255,255,0.15);
+      border-radius: 3px;
+      overflow: hidden;
+      margin-top: 8px;
+    }
+    #loading-overlay .progress-bar .progress-fill {
+      width: 0%;
+      height: 100%;
+      background: var(--primary);
+      transition: width 0.2s ease;
+    }
+    #loading-overlay .progress-text {
+      font-size: 13px;
+      color: #e6eef6;
+      opacity: 0.85;
+      margin-top: 4px;
+    }
     @keyframes spin { to { transform: rotate(360deg); } }
     
 
@@ -380,7 +401,7 @@
   <div id="start-screen">
     <h1>AR Inspection</h1>
     <p>Scan the marker to view the phasing timeline and inspect BIM data directly on site.</p>
-    <button id="start-ar-btn" class="start-btn">START AR</button>
+    <button id="start-ar-btn" class="start-btn">WIP</button>
     <a href="model-view.html" style="color: #ffffff; font-size: 12px; margin-top: 30px; text-decoration: none;">Exit to Inspector</a>
   </div>
 
@@ -472,6 +493,8 @@
     <div id="loading-overlay" class="hidden" aria-hidden="true">
       <div class="spinner" role="status" aria-hidden="true"></div>
       <div class="loading-text">Loading models…</div>
+      <div class="progress-bar" aria-hidden="true"><div class="progress-fill"></div></div>
+      <div class="progress-text" aria-hidden="true"></div>
     </div>
   </div>
 
@@ -565,12 +588,32 @@
             const t = _loadingOverlayEl.querySelector('.loading-text');
             if (t) t.textContent = String(text);
         }
+        if (!show) {
+            updateLoadingProgress(0, 0);
+        }
+    }
+    function updateLoadingProgress(loaded, total) {
+        if (!_loadingOverlayEl) return;
+        const bar = _loadingOverlayEl.querySelector('.progress-bar .progress-fill');
+        const textEl = _loadingOverlayEl.querySelector('.progress-text');
+        let pct = 0;
+        if (total && total > 0) {
+            pct = Math.round((loaded / total) * 100);
+        }
+        if (bar) bar.style.width = pct + '%';
+        if (textEl) textEl.textContent = total ? `${pct}% (${loaded} / ${total})` : '';
     }
 
     setLoadingOverlay(true, 'Loading project manifest...');
-    loadProjectManifest(modelID).then(async (manifest) => {
+    loadProjectManifest(modelID, (loaded, total) => {
+        updateLoadingProgress(loaded, total);
+        const msg = total && total > 0 ?
+            `Loading project manifest... (${Math.round((loaded/total)*100)}%)` :
+            'Loading project manifest...';
+        setLoadingOverlay(true, msg);
+    }).then(async (manifest) => {
       if (!manifest) { setLoadingOverlay(false); return; }
-      document.getElementById('tree-container').innerHTML = ''; // Clear loading 
+      document.getElementById('tree-container').innerHTML = ''; // Clear loading
       phaseManifestData = manifest;
 
       // Load Data Map
